@@ -1,0 +1,36 @@
+# --- Node / Extension ---
+node_modules/
+extension/dist/
+extension/*.zip
+*.tsbuildinfo
+
+# --- Python / Backend ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+backend/.venv/
+venv/
+.venv/
+
+# --- Environment files (never commit real values) ---
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# --- Build output ---
+dist/
+build/
+
+# --- IDE / Editor ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- OS files ---
+.DS_Store
+Thumbs.db

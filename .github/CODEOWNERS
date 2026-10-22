@@ -1,0 +1,43 @@
+# CODEOWNERS — who reviews what. See docs/TEAM_RESPONSIBILITIES.md.
+# Replace <github-username> placeholders with real GitHub usernames before inviting collaborators.
+
+# Global: team lead reviews everything by default.
+* @<github-username-shreyansh>
+
+# --- Backend core (Shreyansh) ---
+/backend/app/main.py              @<github-username-shreyansh>
+/backend/app/api/                 @<github-username-shreyansh>
+/backend/app/core/                @<github-username-shreyansh>
+/backend/app/integrations/base.py @<github-username-shreyansh>
+/backend/app/integrations/github.py @<github-username-shreyansh>
+
+# --- AI services (Devyani) ---
+/backend/app/services/            @<github-username-devyani>
+/backend/app/prompts/             @<github-username-devyani>
+/backend/app/schemas/             @<github-username-devyani> @<github-username-shreyansh>
+/extension/src/tabs/AskAITab.tsx  @<github-username-devyani>
+
+# --- UI + Jira (Purva) ---
+/extension/src/components/        @<github-username-purva>
+/extension/src/styles/            @<github-username-purva>
+/extension/src/tabs/ArchitectureTab.tsx @<github-username-purva>
+/extension/src/tabs/ContextTab.tsx      @<github-username-purva>
+/extension/src/tabs/ContributeTab.tsx   @<github-username-purva>
+/backend/app/integrations/jira.py @<github-username-purva>
+
+# --- Slack + Confluence (Kunal) ---
+/backend/app/integrations/slack.py      @<github-username-kunal>
+/backend/app/integrations/confluence.py @<github-username-kunal>
+/backend/app/api/integrations.py        @<github-username-kunal>
+/extension/src/tabs/IntegrationDrawer.tsx @<github-username-kunal>
+
+# --- Extension shell (Shreyansh) ---
+/extension/src/App.tsx            @<github-username-shreyansh>
+/extension/src/services/          @<github-username-shreyansh>
+/extension/src/types/             @<github-username-shreyansh> @<github-username-devyani>
+
+# --- Shared contracts: both owners must approve ---
+/backend/app/core/modes.py        @<github-username-shreyansh> @<github-username-devyani>
+/backend/app/schemas/architecture.py @<github-username-shreyansh> @<github-username-devyani>
+/extension/src/types/architecture.ts @<github-username-shreyansh> @<github-username-devyani>
+/extension/src/types/mode.ts      @<github-username-shreyansh> @<github-username-devyani>

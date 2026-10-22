@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "DevMinds — Codebase Mentor",
+  "version": "0.1.0",
+  "description": "Turn any GitHub repository into a friendly mentor. Explains architecture, helps you contribute, and answers questions.",
+  "permissions": ["sidePanel", "activeTab"],
+  "host_permissions": ["https://github.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open DevMinds"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  }
+}
