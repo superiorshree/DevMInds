@@ -1,43 +1,42 @@
 # CODEOWNERS — who reviews what. See docs/TEAM_RESPONSIBILITIES.md.
-# Replace <github-username> placeholders with real GitHub usernames before inviting collaborators.
 
 # Global: team lead reviews everything by default.
-* @<github-username-shreyansh>
+* @superiorshree
 
 # --- Backend core (Shreyansh) ---
-/backend/app/main.py              @<github-username-shreyansh>
-/backend/app/api/                 @<github-username-shreyansh>
-/backend/app/core/                @<github-username-shreyansh>
-/backend/app/integrations/base.py @<github-username-shreyansh>
-/backend/app/integrations/github.py @<github-username-shreyansh>
+/backend/app/main.py              @superiorshree
+/backend/app/api/                 @superiorshree
+/backend/app/core/                @superiorshree
+/backend/app/integrations/base.py @superiorshree
+/backend/app/integrations/github.py @superiorshree
 
 # --- AI services (Devyani) ---
-/backend/app/services/            @<github-username-devyani>
-/backend/app/prompts/             @<github-username-devyani>
-/backend/app/schemas/             @<github-username-devyani> @<github-username-shreyansh>
-/extension/src/tabs/AskAITab.tsx  @<github-username-devyani>
+/backend/app/services/            @Devyani006
+/backend/app/prompts/             @Devyani006
+/backend/app/schemas/             @Devyani006 @superiorshree
+/extension/src/tabs/AskAITab.tsx  @Devyani006
 
 # --- UI + Jira (Purva) ---
-/extension/src/components/        @<github-username-purva>
-/extension/src/styles/            @<github-username-purva>
-/extension/src/tabs/ArchitectureTab.tsx @<github-username-purva>
-/extension/src/tabs/ContextTab.tsx      @<github-username-purva>
-/extension/src/tabs/ContributeTab.tsx   @<github-username-purva>
-/backend/app/integrations/jira.py @<github-username-purva>
+/extension/src/components/        @purva84
+/extension/src/styles/            @purva84
+/extension/src/tabs/ArchitectureTab.tsx @purva84
+/extension/src/tabs/ContextTab.tsx      @purva84
+/extension/src/tabs/ContributeTab.tsx   @purva84
+/backend/app/integrations/jira.py @purva84
 
 # --- Slack + Confluence (Kunal) ---
-/backend/app/integrations/slack.py      @<github-username-kunal>
-/backend/app/integrations/confluence.py @<github-username-kunal>
-/backend/app/api/integrations.py        @<github-username-kunal>
-/extension/src/tabs/IntegrationDrawer.tsx @<github-username-kunal>
+/backend/app/integrations/slack.py      @Kunal-Arun-Patil
+/backend/app/integrations/confluence.py @Kunal-Arun-Patil
+/backend/app/api/integrations.py        @Kunal-Arun-Patil
+/extension/src/tabs/IntegrationDrawer.tsx @Kunal-Arun-Patil
 
 # --- Extension shell (Shreyansh) ---
-/extension/src/App.tsx            @<github-username-shreyansh>
-/extension/src/services/          @<github-username-shreyansh>
-/extension/src/types/             @<github-username-shreyansh> @<github-username-devyani>
+/extension/src/App.tsx            @superiorshree
+/extension/src/services/          @superiorshree
+/extension/src/types/             @superiorshree @Devyani006
 
 # --- Shared contracts: both owners must approve ---
-/backend/app/core/modes.py        @<github-username-shreyansh> @<github-username-devyani>
-/backend/app/schemas/architecture.py @<github-username-shreyansh> @<github-username-devyani>
-/extension/src/types/architecture.ts @<github-username-shreyansh> @<github-username-devyani>
-/extension/src/types/mode.ts      @<github-username-shreyansh> @<github-username-devyani>
+/backend/app/core/modes.py        @superiorshree @Devyani006
+/backend/app/schemas/architecture.py @superiorshree @Devyani006
+/extension/src/types/architecture.ts @superiorshree @Devyani006
+/extension/src/types/mode.ts      @superiorshree @Devyani006
