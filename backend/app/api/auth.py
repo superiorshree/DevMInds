@@ -1,8 +1,8 @@
 # File:        backend/app/api/auth.py
 # Owner:       Shreyansh
 # Purpose:     GitHub OAuth routes — start login, handle callback, return the current user, log out.
-# Contains:    FastAPI APIRouter with GET /github, GET /github/callback, GET /me, POST /logout; OAuth state store; GitHub token exchange + profile fetch helpers.
-# Status:      REAL — full OAuth code flow with server-side sessions; state store is in memory until we add the database.
+# Contains:    FastAPI APIRouter with GET /github, GET /github/callback, GET /me, POST /logout; file-backed OAuth state store; GitHub token exchange + profile fetch helpers.
+# Status:      REAL — full OAuth code flow with server-side sessions; OAuth states persist across restarts and are shared between workers (temp-dir file store).
 # Depends on:  backend/app/core/security.py, backend/app/core/config.py, backend/app/schemas/common.py, httpx
 
 """Auth routes.
@@ -11,8 +11,11 @@ Authentication proves who you are (GitHub OAuth). Authorization (what they may
 do) is enforced per-route by require_feature() in core/modes.py.
 """
 
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from tempfile import gettempdir
 from typing import Annotated
 from urllib.parse import urlencode
 
@@ -40,33 +43,105 @@ OAUTH_SCOPE = "read:user"
 #: How long an OAuth `state` stays valid before the callback rejects it.
 STATE_TTL = timedelta(minutes=10)
 
-# In-memory store of pending OAuth states -> expiry time.
-# TODO(Shreyansh): move this to the database / a shared cache so it survives
-# restarts and works with more than one worker.
+# Pending OAuth states are stored as ONE FILE EACH under the system temp dir.
+# A module-level dict alone cannot survive a `--reload`/restart and is invisible
+# to other worker processes — the callback then rejects the very state this
+# flow issued ("Invalid OAuth state"). The file store is shared by every
+# process on this machine and survives restarts.
+# The file name is the SHA-256 of the state: raw states never touch the disk or
+# directory listings, and a caller-supplied state can never escape the folder.
+_STATE_DIR = Path(gettempdir()) / "devminds-oauth-states"
+_STATE_SUFFIX = ".state"
+
+# Local index of pending state -> expiry, used for pruning and introspection.
+# The file store is what validates callbacks; this dict is never trusted alone.
+# TODO(Shreyansh): for multi-host deployments move the state store to the
+# database / a shared cache — file-backed state is per-machine.
 _pending_states: dict[str, datetime] = {}
 
 
+def _state_path(state: str) -> Path:
+    """Return the store file for a state (SHA-256 name — traversal-proof)."""
+    digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
+    return _STATE_DIR / f"{digest}{_STATE_SUFFIX}"
+
+
+def _prune_state_files(now: datetime) -> None:
+    """Best-effort removal of expired state files and stale temp files."""
+    for path in _STATE_DIR.glob(f"*{_STATE_SUFFIX}"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        try:
+            expired = now > datetime.fromisoformat(text)
+        except ValueError:
+            expired = True  # unreadable/corrupt entry -> garbage-collect it.
+        if expired:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+    # Leftovers of an atomic write that crashed mid-way.
+    for path in _STATE_DIR.glob(f"*{_STATE_SUFFIX}.*.tmp"):
+        try:
+            if now.timestamp() - path.stat().st_mtime > STATE_TTL.total_seconds():
+                path.unlink()
+        except OSError:
+            pass
+
+
 def _create_state() -> str:
-    """Generate a fresh OAuth state, forget expired ones, remember the new one."""
+    """Generate a fresh OAuth state, prune expired ones, remember the new one.
+
+    The state is published as a file first (atomic rename), so it is visible to
+    whichever process ends up serving the callback — including after a restart.
+    """
     now = datetime.now(timezone.utc)
     for key, expires_at in list(_pending_states.items()):
         if now > expires_at:
             del _pending_states[key]
+    _STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _prune_state_files(now)
     # secrets.token_urlsafe is cryptographically random — unguessable state.
     state = secrets.token_urlsafe(32)
-    _pending_states[state] = now + STATE_TTL
+    expires_at = now + STATE_TTL
+    path = _state_path(state)
+    tmp = _STATE_DIR / f"{path.name}.{secrets.token_hex(4)}.tmp"
+    tmp.write_text(expires_at.isoformat(), encoding="utf-8")
+    tmp.replace(path)  # atomic publish: readers never see a half-written entry.
+    _pending_states[state] = expires_at
     return state
 
 
 def _consume_state(state: str | None) -> None:
     """Validate the returned OAuth state and consume it (single use).
 
-    Raises HTTP 400 when the state is missing, unknown or expired.
+    The state file is the authority: reading it proves the state was issued,
+    and deleting it claims it, so exactly one callback can ever succeed.
+    Raises HTTP 400 when the state is missing, unknown, expired or already
+    consumed.
     """
-    now = datetime.now(timezone.utc)
-    expires_at = _pending_states.pop(state, None) if state else None
-    if expires_at is None or now > expires_at:
+    if not state:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
+    path = _state_path(state)
+    try:
+        text = path.read_text(encoding="utf-8")
+        path.unlink()  # atomic claim — of two racing callbacks only one wins.
+    except (FileNotFoundError, PermissionError):
+        # Unknown state, a replay after consumption, or a concurrent duplicate.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state"
+        ) from None
+    try:
+        expires_at = datetime.fromisoformat(text)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state"
+        ) from None
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
+    _pending_states.pop(state, None)
 
 
 def _exchange_code_for_token(code: str) -> str:
