@@ -5,6 +5,9 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.0
 
+# Auth — signed session tokens (HS256)
+PyJWT==2.10.1
+
 # Settings / env config
 pydantic-settings==2.6.0
 python-dotenv==1.0.1

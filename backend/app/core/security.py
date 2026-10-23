@@ -1,9 +1,9 @@
 # File:        backend/app/core/security.py
 # Owner:       Shreyansh
 # Purpose:     Handles authentication and the server-side notion of the current user.
-# Contains:    get_current_user() (stub), create_session_token(), verify_session_token() stubs.
-# Status:      STUB, replace TODOs with real implementation
-# Depends on:  backend/app/core/config.py, backend/app/core/modes.py, backend/app/database/models.py
+# Contains:    get_current_user() FastAPI dependency, create_session_token(), verify_session_token(), revoke_session_token(), find_or_create_user(), in-memory user store.
+# Status:      REAL — HS256 sessions + bearer auth; users live in memory until we add the database.
+# Depends on:  backend/app/core/config.py (SESSION_SECRET), backend/app/core/modes.py (CurrentUser, UserMode)
 
 """Authentication helpers.
 
@@ -14,37 +14,129 @@ The backend must never trust a mode value sent by the frontend; the mode used
 for authorization always comes from the current user loaded here.
 """
 
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
+
+import jwt
+from fastapi import Header, HTTPException, status
+
+from app.core.config import get_settings
 from app.core.modes import CurrentUser, UserMode
 
+#: How long a session token stays valid.
+SESSION_TTL = timedelta(days=7)
 
-def get_current_user() -> CurrentUser:
-    """Return the signed-in user for this request (server-side mode).
 
-    STUB: returns a fixed user so the skeleton runs without real OAuth. In real
-    code this reads the session cookie / bearer token and loads the user row.
+@dataclass
+class StoredUser:
+    """A user row as persisted server-side (in memory for now).
+
+    The GitHub token is stored here and NEVER returned to the client.
     """
-    # TODO(Shreyansh): implement real session lookup — parse the session token,
-    # load the user from the database, and return their persisted mode. Raise
-    # HTTP 401 when the token is missing, malformed or expired.
-    return CurrentUser(
-        id="usr_stub",
-        github_login="stub-user",
-        avatar_url="",
-        mode=UserMode.OPEN_CONTRIBUTOR,
-    )
+
+    id: str
+    github_login: str
+    avatar_url: str
+    mode: UserMode
+    github_token: str = ""
+
+    def to_current_user(self) -> CurrentUser:
+        """Project the stored user onto the public CurrentUser shape."""
+        return CurrentUser(
+            id=self.id,
+            github_login=self.github_login,
+            avatar_url=self.avatar_url,
+            mode=self.mode,
+        )
+
+
+# TODO(Shreyansh): replace this in-memory store with the users table
+# (backend/app/database/models.py) so sessions survive restarts.
+_USERS: dict[str, StoredUser] = {}
+
+#: Tokens invalidated by POST /api/auth/logout. Checked on every request.
+#: TODO(Shreyansh): move revocation to the database alongside the user rows.
+_REVOKED_TOKENS: set[str] = set()
+
+
+def find_or_create_user(
+    github_id: int, login: str, avatar_url: str, github_token: str = ""
+) -> CurrentUser:
+    """Return the user for a GitHub account, creating them on first sign-in.
+
+    New users default to mode open_contributor. The mode is persisted
+    server-side here and is never taken from the client. The GitHub token is
+    kept on the server only and is never part of CurrentUser.
+    """
+    user_id = f"usr_{github_id}"
+    record = _USERS.get(user_id)
+    if record is None:
+        record = StoredUser(
+            id=user_id,
+            github_login=login,
+            avatar_url=avatar_url,
+            mode=UserMode.OPEN_CONTRIBUTOR,
+            github_token=github_token,
+        )
+        _USERS[user_id] = record
+    else:
+        # Refresh profile fields on every sign-in; never touch the mode.
+        record.github_login = login
+        record.avatar_url = avatar_url
+        record.github_token = github_token
+    return record.to_current_user()
+
+
+def _session_secret() -> str:
+    """Return the HS256 signing secret, refusing to run when it is not set."""
+    secret = get_settings().session_secret
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SESSION_SECRET is not configured",
+        )
+    return secret
 
 
 def create_session_token(user_id: str) -> str:
-    """Create a session token for a user.
-
-    TODO(Shreyansh): implement real session issuance after GitHub OAuth.
-    """
-    raise NotImplementedError("TODO(Shreyansh): real session issuance")
+    """Create a signed, expiring (HS256) session token for a user."""
+    now = datetime.now(timezone.utc)
+    payload = {"sub": user_id, "iat": now, "exp": now + SESSION_TTL}
+    return jwt.encode(payload, _session_secret(), algorithm="HS256")
 
 
 def verify_session_token(token: str) -> str | None:
-    """Verify a session token and return the user id, or None if invalid.
+    """Verify a session token and return the user id, or None if invalid."""
+    if token in _REVOKED_TOKENS:
+        return None
+    try:
+        payload = jwt.decode(token, _session_secret(), algorithms=["HS256"])
+    except jwt.PyJWTError:
+        return None
+    sub = payload.get("sub")
+    return sub if isinstance(sub, str) else None
 
-    TODO(Shreyansh): implement real session verification.
+
+def revoke_session_token(token: str) -> None:
+    """Invalidate a session token (used by logout)."""
+    _REVOKED_TOKENS.add(token)
+
+
+def get_current_user(
+    authorization: Annotated[str | None, Header()] = None,
+) -> CurrentUser:
+    """Return the signed-in user for this request (server-side mode).
+
+    Reads the Authorization: Bearer header, verifies the session token, and
+    loads the user with their persisted server-side mode. Raises HTTP 401 when
+    the token is missing, malformed, expired or revoked.
     """
-    raise NotImplementedError("TODO(Shreyansh): real session verification")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    token = authorization.removeprefix("Bearer ").strip()
+    user_id = verify_session_token(token) if token else None
+    record = _USERS.get(user_id) if user_id else None
+    if record is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    return record.to_current_user()
