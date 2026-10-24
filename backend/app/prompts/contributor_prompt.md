@@ -23,7 +23,7 @@ RULES
 INPUT FORMAT
 The caller provides a JSON object with three keys:
 - {facts_json}: an object conforming to the ArchitectureBundle schema (repository, overview, technologies, entry_points, components, connections, contributor_guide). All fields are optional may be absent in open_source mode.
-- {mode_context_json}: a JSON object describing the server-side mode; for open_source mode this will be {"mode": "open_contributor"}.
+- {mode_context_json}: a JSON object describing the server-side mode; for open_source mode this will be {"mode": "open_source"}.
 - {question}: a string containing the user's question about the repository (e.g. "How do I add a new page?").
 
 ---
@@ -69,7 +69,7 @@ Input:
     "connections": [{"from": "router", "to": "renderer", "relationship": "renders matched pages"}],
     "contributor_guide": {"setup_steps": ["pnpm install", "pnpm dev"], "contribution_rules": ["Run pnpm test before opening a PR."], "good_first_issues": [{"title": "Fix typo in docs", "url": "https://github.com/vercel/next.js/issues/1"}], "maintainers": [{"login": "gaearon", "avatar_url": "https://avatars.githubusercontent.com/u/1?v=4"}]}
   },
-  "mode_context_json": {"mode": "open_contributor"},
+  "mode_context_json": {"mode": "open_source"},
   "question": "How do I add a new page to this React framework?"
 }
 

@@ -1,5 +1,10 @@
 # File:        backend/app/ai/__init__.py
 # Owner:       Devyani
+# Purpose:     Stub AI module — to be replaced with real implementation.
+# Contains:    get_ai_service() returning AIService with fake answer() and health(); re-exports the frozen
+#              AIAnswer / AIError contracts from app.schemas.contracts (no local duplicates).
+# Status:      STUB, to be replaced by Devyani (real providers live behind app/ai/base.py + gateway.py).
+# Depends on:  backend/app/schemas/contracts.py (AIAnswer, AIError — frozen)
 # Purpose:     AI module public interface — AIService with answer() and health()
 # Contains:    AIAnswer/AIError re-exports from contracts, AIService, get_ai_service()
 # Status:      REAL
@@ -17,6 +22,11 @@ from app.ai.gateway import classify
 from app.ai.ollama_provider import OllamaProvider
 from app.ai.external_provider import ExternalLLMProvider
 
+# The frozen contract is the single definition: this module must never redeclare
+# its own AIAnswer/AIError (duplicate interfaces drift out of sync).
+from app.schemas.contracts import AIAnswer, AIError
+
+__all__ = ["AIAnswer", "AIError", "AIService", "get_ai_service"]
 HealthStatus = Literal["up", "down", "model_missing", "not_configured"]
 
 

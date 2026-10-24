@@ -27,8 +27,8 @@ class User(Base):
     id = Column(String, primary_key=True)
     github_login = Column(String, unique=True, nullable=False)
     avatar_url = Column(String, default="")
-    # TODO(Shreyansh): store the persisted mode (open_contributor / company_employee).
-    mode = Column(String, default="open_contributor")
+    # TODO(Shreyansh): store the persisted mode (open_source / company).
+    mode = Column(String, default="open_source")
 
 
 class SavedLink(Base):

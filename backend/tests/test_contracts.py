@@ -229,3 +229,53 @@ class TestModeValuesWork:
         assert mode_has_feature("company", "jira") is True
         assert mode_has_feature("company", "confluence") is True
         assert mode_has_feature("company", "slackShare") is True
+
+
+class TestConfigImport:
+    """The public config API `from app.config import settings` must keep working."""
+
+    def test_app_config_exposes_settings(self) -> None:
+        from app.config import settings
+        from app.core.config import Settings
+
+        assert isinstance(settings, Settings)
+        # Same instance as the factory returns: no second independent Settings,
+        # so the re-export stays correct after get_settings.cache_clear().
+        assert settings is get_settings()
+        assert settings.ollama_model == get_settings().ollama_model
+
+    def test_app_config_unknown_attribute_raises(self) -> None:
+        import app.config
+
+        with pytest.raises(AttributeError):
+            app.config.does_not_exist
+
+
+class TestAIFrozenContractReuse:
+    """app.ai must reuse the frozen AIAnswer/AIError, never redeclare them."""
+
+    def test_ai_module_reexports_the_frozen_models(self) -> None:
+        import app.ai as ai
+        from app.schemas.contracts import AIAnswer, AIError
+
+        # Identity, not just equivalence: one definition, one source of truth.
+        assert ai.AIAnswer is AIAnswer
+        assert ai.AIError is AIError
+
+    def test_stub_ai_service_returns_a_contract_answer(self) -> None:
+        import asyncio
+
+        import app.ai as ai
+        from app.schemas.contracts import AIAnswer
+
+        answer = asyncio.run(
+            ai.get_ai_service().answer(
+                question="Where does routing live?",
+                repository_context={},
+                company_context=[],
+                mode="open_source",
+            )
+        )
+        assert isinstance(answer, AIAnswer)
+        assert answer.answer
+        assert answer.error is None

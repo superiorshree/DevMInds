@@ -8,6 +8,7 @@
 
 from typing import Any, Literal
 
+from app.core.config import get_settings
 from app.integrations.base import IntegrationAdapter, AdapterError
 
 
@@ -33,9 +34,20 @@ class ConnectorError:
 
 
 class CompanyContext:
-    """Context produced by Kunal's integrations."""
-    items: list[CompanyItem] = []
-    errors: list[ConnectorError] = []
+    """Context produced by Kunal's integrations.
+
+    Mirrors the frozen contracts.CompanyContext {items, errors} shape.
+    """
+
+    def __init__(
+        self,
+        items: list[CompanyItem] | None = None,
+        errors: list[ConnectorError] | None = None,
+    ) -> None:
+        # Instance-level lists, never class-level defaults: CompanyContext()
+        # used to raise TypeError (no __init__) and shared its default lists.
+        self.items: list[CompanyItem] = list(items) if items is not None else []
+        self.errors: list[ConnectorError] = list(errors) if errors is not None else []
 
 
 def get_company_context(repo_full_name: str, query: str, mode: str) -> CompanyContext:
@@ -45,7 +57,17 @@ def get_company_context(repo_full_name: str, query: str, mode: str) -> CompanyCo
     """
     if mode != "company":
         raise PermissionError("get_company_context is only available in company mode")
-    # Return stub data — to be replaced by real integrations
+
+    # USE_MOCK_INTEGRATIONS=false must never serve sample data as if it were
+    # real company context. There is no real dispatcher yet, so fail loudly
+    # instead of returning a fake success.
+    if not get_settings().use_mock_integrations:
+        raise NotImplementedError(
+            "TODO(Kunal): USE_MOCK_INTEGRATIONS=false but no real integration "
+            "dispatcher exists yet — wire the jira/confluence/slack adapters here."
+        )
+
+    # Mock mode: stub data — to be replaced by real integrations
     return CompanyContext(items=[
         CompanyItem(source_type="jira", title="DEV-101", content="Migrate router to new matcher", url="https://acme.atlassian.net/browse/DEV-101", metadata={}),
         CompanyItem(source_type="slack", title="Channel update", content="Architecture summary posted", url="https://slack.com", metadata={}),

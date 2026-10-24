@@ -3,19 +3,23 @@
  * Owner:       Kunal
  * Purpose:     The shared source card every tab renders: one badge/icon per source type, the title as a safe
  *              link, a clamped description and an optional Detected/Inferred/Not found chip.
- * Contains:    SourceType and SourceLabel types, SourceCardProps, SOURCE_NAMES / SOURCE_GLYPHS / LABEL_COLORS
- *              constants, sourceKindOf() and safeHttpUrl() helpers, SourceIcon, SourceCard (named + default
- *              export) and sourceLinkToCardProps().
- * Status:      IMPLEMENTED — renders all four source types and the label chip; styling reads tokens.css only.
- * Depends on:  extension/src/styles/tokens.css (design tokens),
+ * Contains:    SourceType, SourceKind and SourceLabel types, SourceCardProps, SOURCE_NAMES / SOURCE_GLYPHS /
+ *              LABEL_CLASSES constants, normalizeSourceType() and safeHttpUrl() helpers, SourceIcon,
+ *              ExternalIcon, SourceCard (named + default export) and sourceLinkToCardProps().
+ * Status:      IMPLEMENTED — all four source types, the legacy aliases and the label chip render; all styling
+ *              lives in the .source-card* classes in extension/src/styles/tokens.css.
+ * Depends on:  extension/src/styles/tokens.css (design tokens + .source-card* classes),
  *              extension/src/types/architecture.ts (SourceLink)
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { SourceLink } from "../types/architecture";
 
 /** The four source kinds from the API contract (SourceRef.source_type). */
 export type SourceType = "github" | "jira" | "slack" | "confluence";
+
+/** What the badge can show: the four contract kinds, or a neutral fallback. */
+export type SourceKind = SourceType | "unknown";
 
 /** Optional status chip shown next to the source badge. */
 export type SourceLabel = "Detected" | "Inferred" | "Not found";
@@ -27,9 +31,9 @@ export interface SourceCardProps {
   url: string;
   /**
    * The contract's four kinds. Older tab components still pass longer strings
-   * ("jira_issue", "confluence_page", "good_first_issue"), so any string is
-   * accepted and normalised to a kind for the badge — new code should pass one
-   * of the four.
+   * ("jira_issue", "confluence_page", "good_first_issue", "github_file"), so any
+   * string is accepted and normalised to a kind for the badge — new code should
+   * pass one of the four.
    * TODO: narrow to SourceType once every caller passes contract source_type values.
    */
   sourceType: SourceType | (string & {});
@@ -46,7 +50,7 @@ const SOURCE_NAMES: Record<SourceType, string> = {
 };
 
 /** Tiny inline SVG glyph per source kind — no icon library. */
-const SOURCE_GLYPHS: Record<SourceType, ReactNode> = {
+const SOURCE_GLYPHS: Record<SourceKind, ReactNode> = {
   github: (
     <>
       <path d="M8 6 3 12l5 6" />
@@ -68,54 +72,37 @@ const SOURCE_GLYPHS: Record<SourceType, ReactNode> = {
       <path d="M14 3v5h5" />
     </>
   ),
+  // Neutral globe for an unrecognised sourceType.
+  unknown: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18" />
+      <path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" />
+    </>
+  ),
 };
 
-/** Chip colour per label; the background stays the shared subtle surface. */
-const LABEL_COLORS: Record<SourceLabel, string> = {
-  Detected: "var(--color-success)",
-  Inferred: "var(--color-warning)",
-  "Not found": "var(--color-text-muted)",
-};
-
-/** Card shell: every value comes from tokens.css, no fixed widths. */
-const CARD_STYLE: CSSProperties = {
-  display: "block",
-  width: "100%",
-  boxSizing: "border-box",
-  padding: "var(--space-3)",
-  marginBottom: "var(--space-2)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-md)",
-  background: "var(--color-surface)",
-  boxShadow: "var(--shadow-sm)",
-};
-
-/** Shared pill styling for the source badge and the label chip. */
-const PILL_STYLE: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--space-1)",
-  padding: "2px var(--space-2)",
-  border: "1px solid var(--color-border)",
-  borderRadius: "var(--radius-sm)",
-  background: "var(--color-bg-subtle)",
-  fontSize: "var(--font-size-xs)",
-  fontWeight: 600,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
+/** CSS class suffix per label, from the .source-card__chip--* classes. */
+const LABEL_CLASSES: Record<SourceLabel, string> = {
+  Detected: "detected",
+  Inferred: "inferred",
+  "Not found": "not-found",
 };
 
 /**
- * Map any sourceType string onto one of the four contract kinds.
- * Values such as "jira_issue", "confluence_page" or "good_first_issue" belong to
- * their provider; anything else in this extension comes from the repository.
+ * Map any sourceType string onto a badge kind.
+ * The four contract values win; the legacy values still passed by existing tabs
+ * map to their provider ("jira_issue" -> jira, "confluence_page" -> confluence,
+ * "good_first_issue" and "github_file" -> github). Anything else is "unknown"
+ * and gets a neutral badge instead of a wrong provider.
  */
-function sourceKindOf(sourceType: string): SourceType {
-  const value = sourceType.toLowerCase();
+function normalizeSourceType(sourceType: string): SourceKind {
+  const value = sourceType.trim().toLowerCase();
   if (value.includes("jira")) return "jira";
   if (value.includes("slack")) return "slack";
   if (value.includes("confluence")) return "confluence";
-  return "github";
+  if (value.includes("github") || value === "good_first_issue") return "github";
+  return "unknown";
 }
 
 /** Return the url only when it is a real http(s) url; anything else gets no link. */
@@ -129,7 +116,7 @@ function safeHttpUrl(url: string): string | null {
 }
 
 /** The source-type glyph, drawn with the current text colour. */
-function SourceIcon({ kind }: { kind: SourceType }) {
+function SourceIcon({ kind }: { kind: SourceKind }) {
   return (
     <svg
       width={13}
@@ -141,7 +128,6 @@ function SourceIcon({ kind }: { kind: SourceType }) {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      focusable="false"
     >
       {SOURCE_GLYPHS[kind]}
     </svg>
@@ -152,6 +138,7 @@ function SourceIcon({ kind }: { kind: SourceType }) {
 function ExternalIcon() {
   return (
     <svg
+      className="source-card__external-icon"
       width={12}
       height={12}
       viewBox="0 0 24 24"
@@ -161,8 +148,6 @@ function ExternalIcon() {
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"
-      focusable="false"
-      style={{ marginLeft: "var(--space-1)", verticalAlign: "baseline" }}
     >
       <path d="M14 4h6v6" />
       <path d="M20 4 11 13" />
@@ -174,48 +159,35 @@ function ExternalIcon() {
 /**
  * One card describing one source of truth. Used everywhere a source is shown
  * (GitHub files, good-first-issues, Jira issues, Slack messages, Confluence
- * pages). Widths stay fluid so the card works from ~300px to wide panels.
+ * pages). All styling lives in the .source-card* classes in tokens.css, and
+ * widths stay fluid so the card works from ~300px to wide panels.
  */
 export function SourceCard({ title, description, url, sourceType, label }: SourceCardProps) {
-  const kind = sourceKindOf(sourceType);
+  const kind = normalizeSourceType(sourceType);
   const href = safeHttpUrl(url);
+  // An unknown kind shows its raw value so the badge stays informative.
+  const badgeText = kind === "unknown" ? sourceType.trim() || "Source" : SOURCE_NAMES[kind];
 
   return (
-    <article className="source-card" style={CARD_STYLE}>
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: "var(--space-2)",
-          marginBottom: "var(--space-2)",
-        }}
-      >
-        <span style={{ ...PILL_STYLE, color: "var(--color-text-muted)" }}>
+    <article className="source-card">
+      <div className="source-card__header">
+        <span
+          className={
+            kind === "unknown" ? "source-card__badge source-card__badge--unknown" : "source-card__badge"
+          }
+          title={kind === "unknown" ? `Unrecognised source type: ${sourceType}` : undefined}
+        >
           <SourceIcon kind={kind} />
-          {SOURCE_NAMES[kind]}
+          {badgeText}
         </span>
         {label && (
-          <span style={{ ...PILL_STYLE, color: LABEL_COLORS[label] }}>{label}</span>
+          <span className={`source-card__chip source-card__chip--${LABEL_CLASSES[label]}`}>{label}</span>
         )}
       </div>
 
-      <h4
-        style={{
-          margin: 0,
-          fontSize: "var(--font-size-sm)",
-          fontWeight: 600,
-          lineHeight: 1.4,
-          overflowWrap: "anywhere",
-        }}
-      >
+      <h4 className="source-card__title">
         {href ? (
-          <a
-            href={href}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "var(--color-primary)", textDecoration: "none" }}
-          >
+          <a className="source-card__link" href={href} target="_blank" rel="noopener noreferrer">
             {title}
             <ExternalIcon />
           </a>
@@ -224,22 +196,7 @@ export function SourceCard({ title, description, url, sourceType, label }: Sourc
         )}
       </h4>
 
-      {description && (
-        <p
-          style={{
-            margin: "var(--space-2) 0 0",
-            fontSize: "var(--font-size-sm)",
-            color: "var(--color-text-muted)",
-            overflowWrap: "anywhere",
-            display: "-webkit-box",
-            WebkitBoxOrient: "vertical",
-            WebkitLineClamp: 3,
-            overflow: "hidden",
-          }}
-        >
-          {description}
-        </p>
-      )}
+      {description && <p className="source-card__description">{description}</p>}
     </article>
   );
 }
