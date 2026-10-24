@@ -194,8 +194,10 @@ class TestAIService:
         from app.ai import get_ai_service
 
         with patch("app.ai.get_settings", lambda: _settings()), patch(
-            "app.ai.OllamaProvider"
-        ) as ollama_cls, patch("app.ai.ExternalLLMProvider") as ext_cls:
+            "app.ai.gateway.OllamaProvider"
+        ) as ollama_cls,  patch("app.ai.OllamaProvider", ollama_cls), patch(
+            "app.ai.gateway.ExternalLLMProvider"
+        ) as ext_cls:
             ext_cls.return_value.generate = AsyncMock(return_value="public answer")
             answer = await get_ai_service().answer(
                 "q", _Repo("public"), [], mode="open_source"
@@ -211,8 +213,10 @@ class TestAIService:
         from app.ai import get_ai_service
 
         with patch("app.ai.get_settings", lambda: _settings()), patch(
-            "app.ai.OllamaProvider"
-        ) as ollama_cls, patch("app.ai.ExternalLLMProvider") as ext_cls:
+            "app.ai.gateway.OllamaProvider"
+        ) as ollama_cls, patch("app.ai.OllamaProvider", ollama_cls), patch(
+            "app.ai.gateway.ExternalLLMProvider"
+        ) as ext_cls:
             ollama_cls.return_value.generate = AsyncMock(return_value="ollama answer")
             answer = await get_ai_service().answer(
                 "q", _Repo("public"), [_CompanyItem()], mode="company"
