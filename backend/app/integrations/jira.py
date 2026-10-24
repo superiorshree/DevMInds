@@ -1,9 +1,9 @@
 # File:        backend/app/integrations/jira.py
 # Owner:       Kunal
 # Purpose:     Read-only Jira connector — find issues related to a repository and return them as frozen CompanyItem objects.
-# Contains:    JiraConnector (check_connection, fetch, send and private search helpers), JQL builder with escaping, linked-issue search, ADF-to-text conversion, HTTP status to connector error mapping.
-# Status:      REAL — httpx calls to /rest/api/3/search/jql with mocked tests; local fallbacks for BaseConnector/error_from_status until those shared files merge.
-# Depends on:  backend/app/integrations/base.py, backend/app/schemas/contracts.py, backend/app/config.py, httpx
+# Contains:    JiraConnector (source_type, check_connection, fetch, send and private search helpers), JQL builder with escaping, linked-issue search, ADF-to-text conversion.
+# Status:      REAL — httpx calls to /rest/api/3/search/jql with mocked tests; uses the shared BaseConnector and normalize helpers.
+# Depends on:  backend/app/integrations/base.py, backend/app/integrations/normalize.py, backend/app/schemas/contracts.py, backend/app/config.py, httpx
 
 """Jira connector (read-only, company mode only).
 
@@ -25,6 +25,8 @@ from typing import Any
 
 import httpx
 
+from app.integrations.base import BaseConnector
+from app.integrations.normalize import error_from_status
 from app.schemas.contracts import CompanyContext, CompanyItem, ConnectorError
 
 try:
@@ -36,31 +38,6 @@ except ImportError:
     from app.core.config import get_settings
 
     settings = get_settings()
-
-try:
-    from app.integrations.base import BaseConnector
-except ImportError:
-    # TODO(Kunal): BaseConnector arrives with the shared-interfaces branch.
-    # Until it merges, the adapter contract already in base.py is the closest
-    # match on main, so the connector still works today.
-    from app.integrations.base import IntegrationAdapter as BaseConnector
-
-try:
-    from app.integrations.normalize import error_from_status
-except ImportError:
-    # TODO(Kunal): app/integrations/normalize.py (shared helpers) is not on
-    # main yet. This local copy keeps the same contract — HTTP status in,
-    # (frozen error code, short message) out — so moving to the shared helper
-    # later is a one-line change.
-    def error_from_status(status_code: int) -> tuple[str, str]:
-        """Map a Jira HTTP status to a frozen connector error code and message."""
-        if status_code == 401:
-            return "TOKEN_EXPIRED", "Jira rejected the API token"
-        if status_code == 403:
-            return "NO_PERMISSION", "The Jira token cannot see these issues"
-        if status_code == 429:
-            return "RATE_LIMITED", "Jira rate limit reached"
-        return "API_DOWN", f"Jira returned HTTP {status_code}"
 
 
 #: Per-request timeout in seconds. There is no JIRA timeout setting and env
@@ -103,7 +80,7 @@ _BLOCK_TYPES = frozenset(
 class JiraConnector(BaseConnector):
     """Read-only Jira connector: search issues related to a repository."""
 
-    provider = "jira"
+    source_type = "jira"
 
     def __init__(self) -> None:
         self._acceptance_field_checked = False
@@ -188,8 +165,7 @@ class JiraConnector(BaseConnector):
                 source_type="jira", code="API_DOWN", message="Could not reach Jira"
             )
         if response.status_code != 200:
-            code, message = error_from_status(response.status_code)
-            return [], ConnectorError(source_type="jira", code=code, message=message)
+            return [], error_from_status("jira", response.status_code)
         try:
             payload = response.json()
         except ValueError:
