@@ -47,22 +47,30 @@ class Settings(BaseSettings):
     extension_redirect_uri: str = ""
 
     # LLM provider — backend only.
-    llm_api_key: str = ""
-    llm_model: str = ""
+    ai_chat_enabled: bool = True
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:3b"
+    ollama_timeout_seconds: int = 60
+    external_llm_base_url: str = ""
+    external_llm_api_key: str = ""
+    external_llm_model: str = ""
+    external_llm_timeout_seconds: int = 30
+    allow_external_for_company: bool = False
+    use_mock_integrations: bool = True
 
     # Jira (read-only) — company mode only.
     jira_base_url: str = ""
-    jira_api_token: str = ""
     jira_email: str = ""
+    jira_api_token: str = ""
 
     # Confluence (read-only) — company mode only.
     confluence_base_url: str = ""
-    confluence_api_token: str = ""
     confluence_email: str = ""
+    confluence_api_token: str = ""
 
     # Slack (one-way send) — company mode only.
     slack_bot_token: str = ""
-    slack_signing_secret: str = ""
+    slack_channel_ids: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:

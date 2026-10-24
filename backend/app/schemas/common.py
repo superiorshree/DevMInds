@@ -7,7 +7,10 @@
 
 """Common request/response models shared across endpoints."""
 
+from typing import Literal
 from pydantic import BaseModel
+
+from app.schemas.contracts import Mode
 
 
 class HealthResponse(BaseModel):
@@ -32,14 +35,14 @@ class ModeFeatures(BaseModel):
 class ModeResponse(BaseModel):
     """Response shape for GET/PUT /api/me/mode."""
 
-    mode: str
+    mode: Mode
     features: ModeFeatures
 
 
 class ModeRequest(BaseModel):
     """Request body for PUT /api/me/mode."""
 
-    mode: str
+    mode: Mode
 
 
 class SourceLink(BaseModel):

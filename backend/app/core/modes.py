@@ -24,14 +24,14 @@ from fastapi import Depends, HTTPException, status
 class UserMode(str, Enum):
     """The two modes DevMinds supports."""
 
-    OPEN_CONTRIBUTOR = "open_contributor"
-    COMPANY_EMPLOYEE = "company_employee"
+    open_source = "open_source"
+    company = "company"
 
 
 # Feature flags per mode. This is the single source of truth for what each mode
 # can do. The extension reads the resolved features from GET /api/me/mode.
-MODE_FEATURES: dict[UserMode, dict[str, bool]] = {
-    UserMode.OPEN_CONTRIBUTOR: {
+MODE_FEATURES: dict[str, dict[str, bool]] = {
+    "open_source": {
         "privateRepos": False,
         "contributeTab": True,
         "contextTab": False,
@@ -39,7 +39,7 @@ MODE_FEATURES: dict[UserMode, dict[str, bool]] = {
         "confluence": False,
         "slackShare": False,
     },
-    UserMode.COMPANY_EMPLOYEE: {
+    "company": {
         "privateRepos": True,
         "contributeTab": False,
         "contextTab": True,
@@ -69,12 +69,12 @@ def mode_for_user(user: CurrentUser) -> UserMode:
     return user.mode
 
 
-def features_for_mode(mode: UserMode) -> dict[str, bool]:
+def features_for_mode(mode: str) -> dict[str, bool]:
     """Return the feature dict for a mode (what the frontend should render)."""
     return MODE_FEATURES[mode]
 
 
-def mode_has_feature(mode: UserMode, feature: str) -> bool:
+def mode_has_feature(mode: str, feature: str) -> bool:
     """Return True if the given mode allows the given feature."""
     return MODE_FEATURES[mode].get(feature, False)
 
