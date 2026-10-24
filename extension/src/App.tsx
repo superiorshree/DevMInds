@@ -127,7 +127,7 @@ function SessionFooter({ user, onSignOut }: { user: SessionUser; onSignOut: () =
 
 export default function App() {
   const [session, setSession] = useState<SessionState>({ status: "loading" });
-  const [modeInfo, setModeInfo] = useState<ModeResponse>(localModeResponse("open_contributor"));
+  const [modeInfo, setModeInfo] = useState<ModeResponse>(localModeResponse("open_source"));
   const [repo, setRepo] = useState<RepoRef | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [drawerOpen, setDrawerOpen] = useState(false);

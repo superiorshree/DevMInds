@@ -8,7 +8,7 @@
  */
 
 /** The two modes DevMinds supports. */
-export type UserMode = "open_contributor" | "company_employee";
+export type UserMode = "open_source" | "company";
 
 /**
  * Per-mode feature flags the UI reads to decide what to render.
@@ -29,7 +29,7 @@ export interface ModeFeatures {
  * defaults only power the mock UI before the backend is wired up.
  */
 export const MODE_FEATURES: Record<UserMode, ModeFeatures> = {
-  open_contributor: {
+  open_source: {
     privateRepos: false,
     contributeTab: true,
     contextTab: false,
@@ -37,7 +37,7 @@ export const MODE_FEATURES: Record<UserMode, ModeFeatures> = {
     confluence: false,
     slackShare: false,
   },
-  company_employee: {
+  company: {
     privateRepos: true,
     contributeTab: false,
     contextTab: true,

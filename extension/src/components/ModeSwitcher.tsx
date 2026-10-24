@@ -20,8 +20,8 @@ export interface ModeSwitcherProps {
 }
 
 const MODES: { value: UserMode; label: string }[] = [
-  { value: "open_contributor", label: "Open Contributor" },
-  { value: "company_employee", label: "Company Employee" },
+  { value: "open_source", label: "Open Contributor" },
+  { value: "company", label: "Company Employee" },
 ];
 
 /**
