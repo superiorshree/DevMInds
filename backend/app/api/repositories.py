@@ -47,9 +47,10 @@ def analyze(body: AnalyzeRequest, user: CurrentUser = Depends(get_current_user))
 
 
 @router.get("/{owner}/{repo}/architecture", response_model=ArchitectureBundle)
-def get_repo_architecture(owner: str, repo: str) -> ArchitectureBundle:
+def get_repo_architecture(
+    owner: str, repo: str, user: CurrentUser = Depends(get_current_user)
+) -> ArchitectureBundle:
     """Return the analysis bundle for a repository (mode-tailored)."""
-    user = get_current_user()
     # TODO(Shreyansh): load the cached analysis (404 when not analyzed yet).
     return get_architecture(owner, repo, branch="main", mode=user.mode)
 

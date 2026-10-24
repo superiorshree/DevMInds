@@ -1,25 +1,20 @@
 # File:        backend/app/ai/__init__.py
 # Owner:       Devyani
 # Purpose:     Stub AI module — to be replaced with real implementation.
-# Contains:    get_ai_service() returning AIService with fake answer() and health().
-# Status:      STUB, to be replaced by Devyani.
-# Depends on:  (none — this is the stub interface).
+# Contains:    get_ai_service() returning AIService with fake answer() and health(); re-exports the frozen
+#              AIAnswer / AIError contracts from app.schemas.contracts (no local duplicates).
+# Status:      STUB, to be replaced by Devyani (real providers live behind app/ai/base.py + gateway.py).
+# Depends on:  backend/app/schemas/contracts.py (AIAnswer, AIError — frozen)
 
 from typing import Literal
 
 from pydantic import BaseModel
 
+# The frozen contract is the single definition: this module must never redeclare
+# its own AIAnswer/AIError (duplicate interfaces drift out of sync).
+from app.schemas.contracts import AIAnswer, AIError
 
-class AIError(BaseModel):
-    code: Literal["PRIVATE_AI_UNAVAILABLE", "EXTERNAL_AI_NOT_ALLOWED", "AI_DISABLED", "PROVIDER_ERROR"]
-    message: str
-
-
-class AIAnswer(BaseModel):
-    answer: str | None = None
-    sources: list = []
-    provider: Literal["ollama", "external"] | None = None
-    error: AIError | None = None
+__all__ = ["AIAnswer", "AIError", "AIService", "get_ai_service"]
 
 
 class AIService(BaseModel):

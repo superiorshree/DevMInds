@@ -40,9 +40,15 @@ class ModeResponse(BaseModel):
 
 
 class ModeRequest(BaseModel):
-    """Request body for PUT /api/me/mode."""
+    """Request body for PUT /api/me/mode.
 
-    mode: Mode
+    ``mode`` is a plain string on purpose: an unknown value must surface as
+    HTTP 400 with a clear message (per API_CONTRACT.md), not as a 422
+    validation error from a Literal field. The route validates it against
+    UserMode.
+    """
+
+    mode: str
 
 
 class SourceLink(BaseModel):

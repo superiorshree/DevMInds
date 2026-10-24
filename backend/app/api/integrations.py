@@ -17,7 +17,6 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.modes import CurrentUser, UserMode, mode_has_feature, require_feature
 from app.core.security import get_current_user
-from app.schemas.common import DetailResponse
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -43,12 +42,11 @@ def _require_provider_access(provider: str, user: CurrentUser) -> None:
 
 
 @router.get("")
-def list_integrations() -> dict[str, list[dict[str, object]]]:
+def list_integrations(user: CurrentUser = Depends(get_current_user)) -> dict[str, list[dict[str, object]]]:
     """List providers with availability + connection status.
 
     TODO(Kunal): query each adapter's check_connection() for real status.
     """
-    user = get_current_user()
     providers = [
         ("github", ""),
         ("jira", "jira"),
@@ -70,28 +68,41 @@ def list_integrations() -> dict[str, list[dict[str, object]]]:
 
 
 @router.post("/{provider}/connect")
-def connect_provider(provider: str) -> DetailResponse:
+def connect_provider(provider: str, user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
     """Start/connect an integration (gated per provider).
 
+    Returns the contract shape {provider, connected, detail}. `connected` is
+    still false because the real    connection flow is not implemented yet — this stub never claims a connection that did not happen.
+
     TODO(Kunal): run the provider's OAuth/connection flow and persist the
-    connection. Return 404 for unknown providers.
+    connection, then return connected=true. Return 404 for unknown providers.
     """
-    user = get_current_user()
     _require_provider_access(provider, user)
     if provider not in {"github", "jira", "confluence", "slack"}:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
-    return DetailResponse(detail=f"TODO(Kunal): connect {provider}")
+    return {
+        "provider": provider,
+        "connected": False,
+        "detail": f"TODO(Kunal): connect {provider} (connection flow not implemented yet)",
+    }
 
 
 @router.delete("/{provider}")
-def disconnect_provider(provider: str) -> DetailResponse:
+def disconnect_provider(provider: str, user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
     """Disconnect an integration (gated per provider).
+
+    Returns the contract shape {provider, connected, detail}.
 
     TODO(Kunal): revoke and delete the stored connection.
     """
-    user = get_current_user()
     _require_provider_access(provider, user)
-    return DetailResponse(detail=f"TODO(Kunal): disconnect {provider}")
+    if provider not in {"github", "jira", "confluence", "slack"}:
+        raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
+    return {
+        "provider": provider,
+        "connected": False,
+        "detail": "Disconnected",
+    }
 
 
 @router.post("/slack/share")

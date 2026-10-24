@@ -20,7 +20,7 @@ from app.schemas.common import ChatResponse, SourceLink
 def answer_question(owner: str, name: str, question: str, mode: UserMode) -> ChatResponse:
     """Answer a question about a repository, citing sources."""
     # TODO(Devyani): gather permitted context for THIS mode (GitHub always;
-    # Jira/Confluence only in COMPANY_EMPLOYEE), build the prompt from
+    # Jira/Confluence only in company mode), build the prompt from
     # prompts/onboarding_prompt.md, call the AI service, validate the structured
     # output, and return an answer with real source URLs. Retry on malformed
     # output; surface provider errors as 502.
