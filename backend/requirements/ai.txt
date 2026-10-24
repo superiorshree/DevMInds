@@ -1,0 +1,12 @@
+# File:        backend/requirements/ai.txt
+# Owner:       Devyani
+# Purpose:     Python dependencies for the AI module (providers, gateway, tests)
+# Contains:    httpx (HTTP client for Ollama/external LLM), pytest-asyncio (async tests)
+# Status:      REAL
+# Depends on:  backend/requirements.txt (includes this file via -r)
+
+# HTTP client used by OllamaProvider and ExternalLLMProvider.
+httpx>=0.27.0
+
+# Lets pytest run the async provider/gateway tests.
+pytest-asyncio>=0.24
