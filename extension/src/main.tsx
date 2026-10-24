@@ -3,7 +3,7 @@
  * Owner:       Shreyansh
  * Purpose:     React entry point that mounts the App into the side panel DOM.
  * Contains:    createRoot mount call.
- * Status:      STUB, replace TODOs with real implementation
+ * Status:      IMPLEMENTED — mounts <App /> inside StrictMode with the shared design tokens.
  * Depends on:  extension/src/App.tsx, extension/src/styles/tokens.css
  */
 
@@ -19,4 +19,4 @@ if (rootElement) {
       <App />
     </React.StrictMode>,
   );
-}
+}

@@ -2,9 +2,9 @@
  * File:        extension/src/services/repoDetector.ts
  * Owner:       Shreyansh
  * Purpose:     Parses the active tab's URL to detect which GitHub repository the user is viewing.
- * Contains:    RepoRef interface and parseGithubRepo() / detectRepoFromTabs() helpers.
- * Status:      STUB, replace TODOs with real implementation
- * Depends on:  (none — pure URL parsing, no feature logic)
+ * Contains:    RepoRef interface, NON_REPO_ROUTES constant, parseGithubRepo() and detectRepoFromTabs() helpers.
+ * Status:      IMPLEMENTED — pure URL parsing plus active-tab detection (re-runs on tab changes via App).
+ * Depends on:  chrome.tabs (activeTab / github.com host permission from manifest.json)
  */
 
 /** A detected repository reference. */
@@ -14,8 +14,53 @@ export interface RepoRef {
 }
 
 /**
+ * GitHub's reserved top-level routes. Pages under these are never a
+ * {owner}/{repo} page (settings, notifications, marketplace, explore, orgs…),
+ * and GitHub does not let users or orgs claim these names either.
+ */
+const NON_REPO_ROUTES: ReadonlySet<string> = new Set([
+  "about",
+  "account",
+  "apps",
+  "assets",
+  "codespaces",
+  "collections",
+  "contact",
+  "customer-stories",
+  "dashboard",
+  "events",
+  "explore",
+  "features",
+  "gist",
+  "issues",
+  "join",
+  "login",
+  "logout",
+  "marketplace",
+  "new",
+  "notifications",
+  "orgs",
+  "organizations",
+  "pricing",
+  "pulls",
+  "repos",
+  "search",
+  "sessions",
+  "settings",
+  "showcase",
+  "signup",
+  "sponsors",
+  "stars",
+  "topics",
+  "trending",
+  "try",
+  "users",
+]);
+
+/**
  * Parse an owner/repo pair out of a github.com URL.
- * Returns null for non-GitHub URLs (the caller shows the welcome screen).
+ * Returns null for non-GitHub URLs and for GitHub pages that are not a repo
+ * (the caller shows the welcome screen).
  *
  * Handles:
  *   https://github.com/{owner}/{repo}
@@ -30,11 +75,11 @@ export function parseGithubRepo(url: string): RepoRef | null {
     return null;
   }
 
-  if (parsed.hostname !== "github.com") {
+  if (parsed.hostname !== "github.com" && parsed.hostname !== "www.github.com") {
     return null;
   }
 
-  // e.g. ["vercel", "next.js"]
+  // e.g. ["vercel", "next.js", "issues"]
   const segments = parsed.pathname.split("/").filter(Boolean);
   if (segments.length < 2) {
     return null;
@@ -43,7 +88,9 @@ export function parseGithubRepo(url: string): RepoRef | null {
   const owner = segments[0];
   const repo = segments[1].replace(/\.git$/, "");
 
-  if (!owner || !repo) {
+  // Reserved GitHub routes (github.com/settings, /orgs/x, /marketplace, …)
+  // and empty names are not repository pages.
+  if (NON_REPO_ROUTES.has(owner) || !owner || !repo) {
     return null;
   }
 
@@ -53,10 +100,8 @@ export function parseGithubRepo(url: string): RepoRef | null {
 /**
  * Detect the repo from the currently active tab.
  * Returns null when chrome APIs are unavailable (e.g. plain browser dev) or the
- * tab is not a GitHub repo page.
- *
- * TODO(Shreyansh): once real permissions are wired, this is the single place
- * the panel learns *which* repo to analyze.
+ * tab is not a GitHub repo page. This is the single place the panel learns
+ * *which* repo to analyze.
  */
 export async function detectRepoFromTabs(): Promise<RepoRef | null> {
   if (typeof chrome === "undefined" || !chrome.tabs?.query) {
@@ -67,4 +112,4 @@ export async function detectRepoFromTabs(): Promise<RepoRef | null> {
     return null;
   }
   return parseGithubRepo(tab.url);
-}
+}
