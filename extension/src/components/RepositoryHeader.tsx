@@ -1,22 +1,24 @@
 /**
  * File:        extension/src/components/RepositoryHeader.tsx
  * Owner:       Shreyansh
- * Purpose:     Shows which repository the panel is analyzing (owner/name + branch) at the top of the side panel.
+ * Purpose:     Shows which repository the panel is analyzing (owner/repo, linked to GitHub) at the top of the side panel.
  * Contains:    RepositoryHeader functional component with a RepositoryHeaderProps interface.
- * Status:      STUB, replace TODOs with real implementation
- * Depends on:  extension/src/types/architecture.ts (Repository)
+ * Status:      IMPLEMENTED — renders the detected owner/repo plus a link that opens the repo on GitHub.
+ * Depends on:  extension/src/services/repoDetector.ts (RepoRef)
  */
 
-import type { Repository } from "../types/architecture";
+import type { RepoRef } from "../services/repoDetector";
 
 /** Props for the repository header. */
 export interface RepositoryHeaderProps {
-  repository: Repository;
+  repo: RepoRef;
 }
 
-/** Displays the current repository and branch at the top of the panel. */
-export function RepositoryHeader({ repository }: RepositoryHeaderProps) {
-  const { owner, name, branch } = repository;
+/** Displays the current repository at the top of the panel, linked to GitHub. */
+export function RepositoryHeader({ repo }: RepositoryHeaderProps) {
+  const { owner, repo: name } = repo;
+  const repoUrl = `https://github.com/${owner}/${name}`;
+
   return (
     <header
       className="repo-header"
@@ -32,11 +34,22 @@ export function RepositoryHeader({ repository }: RepositoryHeaderProps) {
       <div style={{ fontSize: "var(--font-size-lg)", fontWeight: 700 }}>
         {owner} <span style={{ color: "var(--color-text-muted)" }}>/</span> {name}
       </div>
-      <div style={{ fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }}>
-        branch: {branch}
-      </div>
+      <a
+        href={repoUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={`Open ${owner}/${name} on GitHub`}
+        style={{
+          fontSize: "var(--font-size-xs)",
+          color: "var(--color-primary)",
+          textDecoration: "none",
+          width: "fit-content",
+        }}
+      >
+        View on GitHub ↗
+      </a>
       {/* TODO(Shreyansh): add stars, language chip, last-updated, and a
           refresh/analyze button once the backend is wired up. */}
     </header>
   );
-}
+}
