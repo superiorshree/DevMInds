@@ -1,11 +1,18 @@
 /* File:        extension/src/styles/tokens.css
-   Owner:       Purva
-   Purpose:     Central design tokens (colors, spacing, fonts, radii, shadows) plus minimal base styles for the side panel.
-   Contains:     CSS custom properties on :root, a light reset, and basic panel layout helpers.
-   Status:       STUB, replace TODOs with real implementation
-   Depends on:   (none — every component should read these tokens instead of raw values) */
+   Owner:       Kunal
+   Purpose:     Central design tokens (colors, spacing, fonts, radii, shadows), the base styles for the side
+                panel, and the shared SourceCard component styles.
+   Contains:     CSS custom properties on :root (light values, plus dark values behind prefers-color-scheme),
+                 a light reset, panel layout helpers (.panel, .panel__content), and the .source-card*
+                 component classes used by extension/src/components/SourceCard.tsx.
+   Status:      IMPLEMENTED — full token set with light and dark values, plus the production SourceCard styles;
+                every component reads these variables instead of raw values.
+   Depends on:  (none — every component should read these tokens instead of raw values) */
 
+/* Light theme (default). */
 :root {
+  color-scheme: light;
+
   /* Colors */
   --color-bg: #ffffff;
   --color-bg-subtle: #f5f6f8;
@@ -47,6 +54,32 @@
   --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
 }
 
+/* Dark theme: only colors and shadows change; scale/type tokens stay shared.
+   Same variable names, so no component needs a dark-mode branch. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    /* Colors */
+    --color-bg: #0f1218;
+    --color-bg-subtle: #181c24;
+    --color-surface: #141821;
+    --color-border: #2a303c;
+    --color-text: #e7eaf0;
+    --color-text-muted: #9aa4b2;
+    --color-primary: #6b9bff;
+    --color-primary-contrast: #0d1017;
+    --color-accent: #a78bfa;
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
+
+    /* Radii + shadows */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+}
+
 /* Minimal reset so the panel looks sane everywhere. */
 * {
   box-sizing: border-box;
@@ -68,7 +101,7 @@ body {
   line-height: 1.5;
 }
 
-/* The panel can be dragged from ~350px to ~75% of the screen, so layouts must
+/* The panel can be dragged from ~300px to ~75% of the screen, so layouts must
    be flexible (flex/grid) and wrap. Never use fixed pixel widths here. */
 .panel {
   display: flex;
@@ -81,5 +114,125 @@ body {
   padding: var(--space-4);
 }
 
-/* TODO(Purva): build out the real component styles / tokens as the design
-   comes together. Keep everything on the tokens above. */
+/* ------------------------------------------------------------------ */
+/* SourceCard — the shared card every tab renders for one source.      */
+/* Widths stay fluid so it works from a ~300px panel to a wide one.    */
+/* ------------------------------------------------------------------ */
+
+.source-card {
+  display: block;
+  width: 100%;
+  padding: var(--space-3);
+  margin-bottom: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Subtle hover: lift the shadow and outline the card in the primary colour. */
+.source-card:hover {
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+
+/* Keyboard focus on the link inside highlights the whole card. */
+.source-card:focus-within {
+  border-color: var(--color-primary);
+}
+
+/* Header row: source badge plus optional status chip; wraps on narrow panels. */
+.source-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* Shared pill shape for the source badge and the label chip. */
+.source-card__badge,
+.source-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Unrecognised sourceType: dashed outline, raw value in mono. */
+.source-card__badge--unknown {
+  border-style: dashed;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+}
+
+/* Status chip colours: Detected = success, Inferred = warning, Not found = muted. */
+.source-card__chip--detected {
+  color: var(--color-success);
+}
+
+.source-card__chip--inferred {
+  color: var(--color-warning);
+}
+
+.source-card__chip--not-found {
+  color: var(--color-text-muted);
+}
+
+/* Title + link. */
+.source-card__title {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.source-card__link {
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.source-card__link:hover {
+  text-decoration: underline;
+}
+
+/* Visible keyboard focus ring, using the accent token so it stands out. */
+.source-card__link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+  text-decoration: underline;
+}
+
+/* Description: muted, clamped to three lines, safe wrapping for long tokens. */
+.source-card__description {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  margin: var(--space-2) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+/* Small "opens in a new tab" arrow after the title link. */
+.source-card__external-icon {
+  margin-left: var(--space-1);
+  vertical-align: baseline;
+  flex-shrink: 0;
+}

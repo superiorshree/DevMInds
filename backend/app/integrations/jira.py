@@ -25,19 +25,10 @@ from typing import Any
 
 import httpx
 
+from app.config import settings
 from app.integrations.base import BaseConnector
 from app.integrations.normalize import error_from_status
 from app.schemas.contracts import CompanyContext, CompanyItem, ConnectorError
-
-try:
-    from app.config import settings
-except ImportError:
-    # TODO(Kunal): app/config.py re-exports `settings`, but on main
-    # app/core/config.py only defines get_settings(). Use the accessor until
-    # that re-export lands, then this branch disappears.
-    from app.core.config import get_settings
-
-    settings = get_settings()
 
 
 #: Per-request timeout in seconds. There is no JIRA timeout setting and env

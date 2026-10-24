@@ -11,8 +11,9 @@ Available in both modes. Uses the SERVER-SIDE mode (from the session), never a
 mode in the request body, to decide what context the answer may cite.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.core.modes import CurrentUser
 from app.core.security import get_current_user
 from app.schemas.common import ChatRequest, ChatResponse
 from app.services.chat_service import answer_question
@@ -21,9 +22,9 @@ router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
 @router.post("", response_model=ChatResponse)
-def chat(body: ChatRequest) -> ChatResponse:
+def chat(body: ChatRequest, user: CurrentUser = Depends(get_current_user)) -> ChatResponse:
     """Answer a question about a repository, citing sources."""
-    # TODO(Devyani): pass the SERVER-SIDE mode into the chat service. Never read
-    # a mode value from the body. Surface LLM/provider failures as HTTP 502.
-    user = get_current_user()
+    # TODO(Devyani): surface LLM/provider failures as HTTP 502.
+    # The SERVER-SIDE mode decides what context the answer may cite — never a
+    # mode value from the body.
     return answer_question(body.owner, body.name, body.question, mode=user.mode)

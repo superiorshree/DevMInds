@@ -1,9 +1,9 @@
 # File:        backend/app/integrations/__init__.py
 # Owner:       Kunal
 # Purpose:     The two public functions the backend calls for company data: company context and connector status.
-# Contains:    get_company_context() (mode gate, mock switch, three connectors gathered independently), integration_status(), _connectors() and _fetch_one() helpers.
+# Contains:    get_company_context() (mode gate, mock switch, three connectors gathered independently), integration_status(), _connectors() and _fetch_one() helpers, ConnectorStatus literal.
 # Status:      REAL — mock mode works offline; real connectors report NOT_CONNECTED until their own tasks land.
-# Depends on:  backend/app/integrations/{base,jira,slack,confluence}.py, backend/app/integrations/mock_data.py (mock branch only), backend/app/schemas/contracts.py, backend/app/config.py
+# Depends on:  backend/app/config.py, backend/app/schemas/contracts.py, backend/app/integrations/{base,jira,slack,confluence}.py, backend/app/integrations/mock_data.py (mock branch only)
 
 """Company context for the backend.
 
@@ -25,22 +25,12 @@ import asyncio
 import inspect
 from typing import Literal
 
-from app.schemas.contracts import CompanyContext, ConnectorError
-
-try:
-    from app.config import settings
-except ImportError:
-    # TODO(Kunal): app/config.py re-exports `settings`, but on main
-    # app/core/config.py only defines get_settings(). Use the accessor until
-    # that re-export lands, then this branch disappears.
-    from app.core.config import get_settings
-
-    settings = get_settings()
-
+from app.config import settings
 from app.integrations.base import BaseConnector
 from app.integrations.confluence import ConfluenceConnector
 from app.integrations.jira import JiraConnector
 from app.integrations.slack import SlackConnector
+from app.schemas.contracts import CompanyContext, ConnectorError
 
 #: The frozen per-connector status values returned by integration_status().
 ConnectorStatus = Literal["connected", "not_connected", "error"]

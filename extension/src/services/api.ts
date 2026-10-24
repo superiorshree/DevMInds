@@ -191,7 +191,7 @@ export async function getMode(): Promise<ModeResponse> {
     return await request<ModeResponse>("/api/me/mode");
   } catch (error) {
     if (error instanceof BackendUnreachableError) {
-      return localModeResponse("open_contributor");
+      return localModeResponse("open_source");
     }
     throw error;
   }

@@ -8,8 +8,8 @@
 """Architecture service.
 
 Uses the shared analyzer for facts, then applies the AI service to explain them
-in simple words. Fills the mode-dependent block: contributor_guide (open
-contributor) or related_context (company employee).
+in simple words. Fills the mode-dependent block: contributor_guide (open_source
+mode) or related_context (company mode).
 """
 
 from app.core.modes import UserMode
@@ -21,11 +21,11 @@ def get_architecture(owner: str, name: str, branch: str, mode: UserMode) -> Arch
     """Return the architecture bundle for a repo, tailored to the server-side mode."""
     # TODO(Devyani): call analyze_repository() for facts, then use the AI
     # service + prompts/ to write the plain-English overview and descriptions.
-    # Fill contributor_guide for OPEN_CONTRIBUTOR and related_context for
-    # COMPANY_EMPLOYEE. Validate structured output with the Pydantic models.
+    # Fill contributor_guide for open_source and related_context for
+    # company. Validate structured output with the Pydantic models.
     bundle = analyze_repository(owner, name, branch)
 
-    if mode == UserMode.OPEN_CONTRIBUTOR:
+    if mode == UserMode.open_source:
         # TODO(Devyani): populate contributor_guide from repo issues/maintainers.
         bundle.related_context = None
     else:

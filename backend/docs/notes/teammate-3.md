@@ -2,7 +2,7 @@
 # Owner:       Kunal
 # Purpose:     Team note for the integrations base-and-mocks task.
 # Contains:    What was built, how to test it by hand, and what is blocked on others.
-# Status:      REAL — reflects the integrations/base-and-mocks branch.
+# Status:      REAL — reflects the integrations/base-and-mocks branch after merging origin/main.
 # Depends on:  backend/app/integrations/*, backend/tests/integrations/test_mock_switch.py
 
 ## Task: integrations base and mocks (branch `integrations/base-and-mocks`)
@@ -29,7 +29,9 @@
   - `integration_status()` returns `connected` / `not_connected` / `error`
     per connector (all `connected` in mock mode).
 - `backend/app/integrations/jira.py` — now imports the shared
-  `BaseConnector` and `error_from_status` directly (local fallbacks removed).
+  `BaseConnector`, `error_from_status` and `from app.config import settings`
+  directly (local fallbacks removed; main's `app/config.py` re-export landed
+  in the merge with origin/main).
 - `backend/app/integrations/slack.py`, `confluence.py` — `SlackConnector`
   and `ConfluenceConnector` stubs that return a `NOT_CONNECTED`
   `ConnectorError`; send/share helpers keep their later-task TODOs.
@@ -48,18 +50,21 @@
 
 ### Needed from someone else
 
-- **Shreyansh:** `from app.config import settings` currently raises
-  `ImportError` — `app/config.py` re-exports `settings` but
-  `app/core/config.py` only defines `get_settings()`. Every module falls back
-  to `get_settings()` via try/except; adding `settings = get_settings()` at
-  the end of `app/core/config.py` (or fixing the re-export) removes the
-  fallbacks.
-- **Shreyansh:** `tests/test_modes.py` and `tests/test_auth.py` fail on main
-  with `UserMode has no attribute 'COMPANY_EMPLOYEE'` (old enum names). Not
-  touched by this task.
+- **Shreyansh:** `backend/tests/test_integrations.py` (from main, not an
+  allowed file for me) breaks pytest **collection for the whole suite**, and
+  it already did on `origin/main` before this merge (it imports `JiraAdapter`,
+  which exists nowhere). After the merge it also needs: `ConfluenceAdapter` /
+  `SlackAdapter` -> `ConfluenceConnector` / `SlackConnector`, and
+  `get_company_context()` / `integration_status()` must be **awaited** — the
+  frozen Master-Guide interface is `async`, so the synchronous calls in that
+  file cannot pass. I could not edit it; it needs a rewrite on your side.
+- **Shreyansh / Devyani:** `tests/test_contracts.py::
+  TestAIFrozenContractReuse::test_stub_ai_service_returns_a_contract_answer`
+  fails when `EXTERNAL_LLM_*` is unset (AI returns `EXTERNAL_AI_NOT_ALLOWED`,
+  `answer=None`). Unrelated to integrations and failing on main too.
 - **Kunal (later task):** `app/api/integrations.py` still says
   `SlackAdapter.share_summary()` in a TODO comment — the class is now
-  `SlackConnector`.
+  `SlackConnector`. That file is Shreyansh's, so I could not change it.
 - `JiraConnector.fetch` is synchronous (its merged tests call it directly);
   `get_company_context()` dispatches sync vs async, so making it async later
   needs no change in `__init__.py`.

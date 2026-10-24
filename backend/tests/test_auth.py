@@ -1,7 +1,7 @@
 # File:        backend/tests/test_auth.py
 # Owner:       Shreyansh
 # Purpose:     Verifies GitHub OAuth auth: state checking, bearer sessions, /auth/me, /me/mode features, and logout — all without network calls.
-# Contains:    TestClient tests for GET /api/auth/github, GET /api/auth/github/callback, GET /api/auth/me, POST /api/auth/logout and GET /api/me/mode, with mocked httpx.
+# Contains:    TestClient tests for GET /api/auth/github, GET /api/auth/github/callback, GET /api/auth/me, POST /api/auth/logout, GET /api/me/mode and the session-injecting routes (POST /api/chat, GET .../architecture), with mocked httpx.
 # Status:      REAL — covers the implemented OAuth flow (httpx fully mocked).
 # Depends on:  backend/app/main.py, backend/app/api/auth.py, backend/app/core/security.py, backend/app/core/config.py
 
@@ -144,7 +144,7 @@ def test_sign_in_flow_issues_session_token(monkeypatch: pytest.MonkeyPatch) -> N
         "id": "usr_123",
         "github_login": "octocat",
         "avatar_url": FAKE_PROFILE["avatar_url"],
-        "mode": "open_contributor",
+        "mode": "open_source",
     }
 
 
@@ -168,17 +168,17 @@ def test_me_with_valid_token_returns_user() -> None:
     body = response.json()
     assert body["id"] == user.id
     assert body["github_login"] == "octocat"
-    assert body["mode"] == "open_contributor"
+    assert body["mode"] == "open_source"
 
 
 def test_me_mode_returns_features_for_server_side_mode() -> None:
-    """GET /api/me/mode returns the mode and the open_contributor features."""
+    """GET /api/me/mode returns the mode and the open_source features."""
     user = find_or_create_user(github_id=FAKE_PROFILE["id"], login="octocat", avatar_url="")
     token = create_session_token(user.id)
     response = client.get("/api/me/mode", headers=_auth_headers(token))
     assert response.status_code == 200
     assert response.json() == {
-        "mode": "open_contributor",
+        "mode": "open_source",
         "features": {
             "privateRepos": False,
             "contributeTab": True,
@@ -195,10 +195,10 @@ def test_me_mode_without_token_returns_401() -> None:
     assert client.get("/api/me/mode").status_code == 401
 
 
-def test_new_users_default_to_open_contributor() -> None:
-    """A GitHub account seen for the first time is created in open_contributor."""
+def test_new_users_default_to_open_source() -> None:
+    """A GitHub account seen for the first time is created in the default open_source mode."""
     user = find_or_create_user(github_id=999, login="newcomer", avatar_url="")
-    assert user.mode.value == "open_contributor"
+    assert user.mode.value == "open_source"
 
 
 def test_logout_invalidates_session() -> None:
@@ -210,3 +210,33 @@ def test_logout_invalidates_session() -> None:
     assert logout.status_code == 200
     assert logout.json() == {"detail": "Logged out"}
     assert client.get("/api/auth/me", headers=_auth_headers(token)).status_code == 401
+
+
+class TestSessionUserReachesSessionRoutes:
+    """Routes that read the session user must get it through Depends(...).
+
+    Calling get_current_user() inside the route body (instead of as a Depends
+    parameter) means the Authorization header never reaches it, so the route
+    answers 401 for every caller — signed in or not.
+    """
+
+    def test_chat_is_401_without_token_and_200_with_one(self) -> None:
+        user = find_or_create_user(github_id=55501, login="chatter", avatar_url="")
+        token = create_session_token(user.id)
+        body = {"owner": "vercel", "name": "next.js", "question": "Where does routing live?"}
+
+        assert client.post("/api/chat", json=body).status_code == 401
+        response = client.post("/api/chat", json=body, headers=_auth_headers(token))
+        assert response.status_code == 200
+        assert response.json()["sources"], "an answer always cites sources"
+
+    def test_architecture_is_401_without_token_and_200_with_one(self) -> None:
+        user = find_or_create_user(github_id=55502, login="reader", avatar_url="")
+        token = create_session_token(user.id)
+
+        assert client.get("/api/repositories/vercel/next.js/architecture").status_code == 401
+        response = client.get(
+            "/api/repositories/vercel/next.js/architecture", headers=_auth_headers(token)
+        )
+        assert response.status_code == 200
+        assert response.json()["repository"]["owner"] == "vercel"
