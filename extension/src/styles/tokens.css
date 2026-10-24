@@ -1,11 +1,16 @@
 /* File:        extension/src/styles/tokens.css
-   Owner:       Purva
+   Owner:       Kunal
    Purpose:     Central design tokens (colors, spacing, fonts, radii, shadows) plus minimal base styles for the side panel.
-   Contains:     CSS custom properties on :root, a light reset, and basic panel layout helpers.
-   Status:       STUB, replace TODOs with real implementation
-   Depends on:   (none — every component should read these tokens instead of raw values) */
+   Contains:     CSS custom properties on :root (light values, plus dark values behind prefers-color-scheme),
+                 a light reset, and basic panel layout helpers.
+   Status:      IMPLEMENTED — full token set with light and dark values; every component reads these
+                 variables instead of raw values.
+   Depends on:  (none — every component should read these tokens instead of raw values) */
 
+/* Light theme (default). */
 :root {
+  color-scheme: light;
+
   /* Colors */
   --color-bg: #ffffff;
   --color-bg-subtle: #f5f6f8;
@@ -47,6 +52,32 @@
   --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
 }
 
+/* Dark theme: only colors and shadows change; scale/type tokens stay shared.
+   Same variable names, so no component needs a dark-mode branch. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    /* Colors */
+    --color-bg: #0f1218;
+    --color-bg-subtle: #181c24;
+    --color-surface: #141821;
+    --color-border: #2a303c;
+    --color-text: #e7eaf0;
+    --color-text-muted: #9aa4b2;
+    --color-primary: #6b9bff;
+    --color-primary-contrast: #0d1017;
+    --color-accent: #a78bfa;
+    --color-success: #4ade80;
+    --color-warning: #fbbf24;
+    --color-danger: #f87171;
+
+    /* Radii + shadows */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  }
+}
+
 /* Minimal reset so the panel looks sane everywhere. */
 * {
   box-sizing: border-box;
@@ -80,6 +111,3 @@ body {
   flex: 1;
   padding: var(--space-4);
 }
-
-/* TODO(Purva): build out the real component styles / tokens as the design
-   comes together. Keep everything on the tokens above. */
