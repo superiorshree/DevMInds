@@ -2,7 +2,7 @@
 # Owner:       Shreyansh
 # Purpose:     Central place for all backend configuration, read from environment variables.
 # Contains:    Settings class (pydantic-settings) and a get_settings() singleton accessor.
-# Status:      STUB, replace TODOs with real implementation
+# Status:      REAL — settings are read from env; auth-related keys (SESSION_SECRET, EXTENSION_REDIRECT_URI) added.
 # Depends on:  backend/.env (git-ignored), backend/.env.example (names only)
 
 """Application configuration.
@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
+
+    # Session signing secret (HS256) — backend only, NEVER shipped to the extension.
+    # No default on purpose: it MUST come from the environment.
+    session_secret: str = ""
+
+    # Where the OAuth callback redirects the browser after sign-in: the
+    # chromiumapp.org URL the extension passes to chrome.identity.launchWebAuthFlow.
+    extension_redirect_uri: str = ""
 
     # LLM provider — backend only.
     llm_api_key: str = ""
