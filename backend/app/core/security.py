@@ -65,7 +65,7 @@ def find_or_create_user(
 ) -> CurrentUser:
     """Return the user for a GitHub account, creating them on first sign-in.
 
-    New users default to mode open_contributor. The mode is persisted
+    New users default to mode open_source. The mode is persisted
     server-side here and is never taken from the client. The GitHub token is
     kept on the server only and is never part of CurrentUser.
     """
@@ -76,7 +76,7 @@ def find_or_create_user(
             id=user_id,
             github_login=login,
             avatar_url=avatar_url,
-            mode=UserMode.OPEN_CONTRIBUTOR,
+            mode=UserMode.open_source,
             github_token=github_token,
         )
         _USERS[user_id] = record
@@ -85,6 +85,19 @@ def find_or_create_user(
         record.github_login = login
         record.avatar_url = avatar_url
         record.github_token = github_token
+    return record.to_current_user()
+
+
+def update_user_mode(user: CurrentUser, mode: UserMode) -> CurrentUser:
+    """Persist a new SERVER-SIDE mode for an already-authenticated user.
+
+    Used by PUT /api/me/mode. Raises KeyError when the user is unknown (not
+    reachable through the route: get_current_user() only returns stored users).
+    """
+    record = _USERS.get(user.id)
+    if record is None:
+        raise KeyError(user.id)
+    record.mode = mode
     return record.to_current_user()
 
 
