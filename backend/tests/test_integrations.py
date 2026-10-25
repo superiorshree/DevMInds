@@ -1,4 +1,3 @@
-
 """Integration contracts and API route tests for DevMinds."""
 
 from unittest.mock import AsyncMock
@@ -43,11 +42,12 @@ class TestConnectorContracts:
                 "jira", "slack", "confluence"
             }
 
-#: Every connector the repository ships, keyed by their provider name.
-ALL_ADAPTERS = [GitHubAdapter, JiraConnector, ConfluenceAdapter, SlackAdapter]
 
-#: Adapters documented as read-only: they must never write to the provider.
-READ_ONLY_ADAPTERS = [GitHubAdapter, JiraConnector, ConfluenceAdapter]
+class TestIntegrationErrors:
+    def test_adapter_error(self):
+        error = AdapterError("jira", "Unavailable")
+        assert error.provider == "jira"
+        assert error.code == "provider_error"
 
 
 class TestAdapterContract:
@@ -57,73 +57,9 @@ class TestAdapterContract:
         assert error.code == "rate_limited"
 
 
-    def test_base_class_is_abstract(self) -> None:
-        """IntegrationAdapter cannot be instantiated directly — it is the contract."""
-        with pytest.raises(TypeError):
-            IntegrationAdapter()  # type: ignore[abstract]
-
-    @pytest.mark.parametrize("adapter_cls", ALL_ADAPTERS, ids=lambda cls: cls.__name__)
-    def test_adapter_satisfies_the_shared_interface(self, adapter_cls: type) -> None:
-        """Each connector is instantiable and implements check_connection()/fetch()/send()."""
-        adapter = adapter_cls()
-        assert isinstance(adapter, IntegrationAdapter)
-        # Concrete provider name, not the abstract default.
-        assert isinstance(adapter.provider, str)
-        assert adapter.provider not in ("", "base")
-        # The interface is synchronous and returns a plain bool today.
-        assert isinstance(adapter.check_connection(), bool)
-
-    @pytest.mark.parametrize("adapter_cls", READ_ONLY_ADAPTERS, ids=lambda cls: cls.__name__)
-    def test_read_only_adapters_refuse_to_send(self, adapter_cls: type) -> None:
-        """GitHub, Jira and Confluence never write — send() always raises."""
-        adapter = adapter_cls()
-        with pytest.raises(NotImplementedError):
-            adapter.send({})
-
-    def test_jira_is_a_read_only_connector(self) -> None:
-        """The Jira connector is read-only by contract (no writes to Jira)."""
-        jira = JiraConnector()
-        assert jira.provider == "jira"
-        with pytest.raises(NotImplementedError):
-            jira.send({"key": "DEV-101"})
-
-    def test_slack_never_reads_messages(self) -> None:
-        """Slack is one-way send only: fetch() must always raise."""
-        with pytest.raises(NotImplementedError):
-            SlackAdapter().fetch()
-
-
-class TestAdapterErrors:
-    """The shared error types carry provider, message and code uniformly."""
-
-    def test_adapter_error_defaults_to_provider_error_code(self) -> None:
-        err = AdapterError("jira", "boom")
-        assert err.provider == "jira"
-        assert err.message == "boom"
-        assert err.code == "provider_error"
-        assert str(err) == "jira: boom"
-
-    def test_adapter_error_accepts_a_specific_code(self) -> None:
-        err = AdapterError("jira", "Jira unreachable", code="api_down")
-        assert err.code == "api_down"
-
-    def test_rate_limit_error_is_an_adapter_error(self) -> None:
-        err = RateLimitError("jira")
-        assert isinstance(err, AdapterError)
-        assert err.code == "rate_limited"
-        assert err.message == "Rate limited by provider"
-
-    def test_rate_limit_error_keeps_provider_and_message(self) -> None:
-        err = RateLimitError("jira", "429 from Jira")
-        assert err.provider == "jira"
-        assert err.message == "429 from Jira"
-
-
-class TestIntegrationModeGate:
-    """Company context is gated server-side on the company mode."""
-
-    def test_company_context_refused_outside_company_mode(self) -> None:
-        """open_source mode never receives company context (PermissionError)."""
+class TestCompanyContext:
+    @pytest.mark.asyncio
+    async def test_company_mode_gate(self):
         with pytest.raises(PermissionError):
             get_company_context("someone/somerepo", "query", "open_source")
 

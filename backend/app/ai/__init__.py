@@ -8,17 +8,12 @@
 #              backend/app/ai/gateway.py, backend/app/ai/ollama_provider.py,
 #              backend/app/ai/external_provider.py, backend/app/agents/mentor.py
 
-from typing import Any, Dict, List, Literal
+from typing import Any, Dict, List, Literal, Optional
 
+from app.ai.external_provider import ExternalLLMProvider
+from app.ai.ollama_provider import OllamaProvider
 from app.core.config import get_settings
 from app.schemas.contracts import AIAnswer, AIError
-from app.ai import gateway
-from app.ai.errors import PrivateAIUnavailable, ExternalNotAllowed, ProviderError
-from app.ai.ollama_provider import OllamaProvider
-from app.ai.external_provider import ExternalLLMProvider
-
-# The frozen contract is the single definition: this module must never redeclare
-# its own AIAnswer/AIError (duplicate interfaces drift out of sync).
 
 __all__ = ["AIAnswer", "AIError", "AIService", "get_ai_service"]
 HealthStatus = Literal["up", "down", "model_missing", "not_configured"]
@@ -34,6 +29,15 @@ class AIService:
     provider.
     """
 
+    def __init__(self, mentor_agent: Optional[Any] = None):
+        self._mentor_agent = mentor_agent
+
+    def _agent(self) -> Any:
+        if self._mentor_agent is None:
+            from app.agents.mentor import MentorAgent
+            self._mentor_agent = MentorAgent()
+        return self._mentor_agent
+
     async def answer(
         self,
         question: str,
@@ -43,6 +47,9 @@ class AIService:
     ) -> AIAnswer:
         """Answer `question` about the given repository/company context.
 
+        Delegates orchestration to the Mentor Agent (retrieval, privacy classification,
+        prompt construction, model completion, JSON validation, and citation resolution).
+
         Args:
             question: the user's question (untrusted text, treat as data).
             repository_context: frozen RepositoryContext (or dict) with
@@ -51,13 +58,19 @@ class AIService:
             mode: the server-side session mode.
 
         Returns:
-            AIAnswer with the text, provider and, on failure, an AIError
+            AIAnswer with the text, sources, provider and, on failure, an AIError
             using only the frozen codes: AI_DISABLED,
             PRIVATE_AI_UNAVAILABLE, EXTERNAL_AI_NOT_ALLOWED, PROVIDER_ERROR.
         """
         if not get_settings().ai_chat_enabled:
             return AIAnswer(
-                error=AIError(code="AI_DISABLED", message="AI chat is disabled by configuration.")
+                answer=None,
+                sources=[],
+                provider=None,
+                error=AIError(
+                    code="AI_DISABLED",
+                    message="AI chat is disabled by configuration.",
+                ),
             )
 
         from app.agents.mentor import answer_mentor_question

@@ -5,9 +5,9 @@
  *              detects the current GitHub repo from the active tab, and renders the
  *              repository card with "Analyze Repository" CTA before unlocking feature-gated tabs.
  * Contains:    App functional component, SessionState type, TabId type, tabsForMode() helper,
- *              sign-in screens, integrations screen, repo connect screen, settings screen, welcome screen, loading/offline states, and the tabbed shell.
- * Status:      IMPLEMENTED — session (getMe/signIn/signOut), live repo detection and
- *              feature-driven tabs wired; tab bodies still render mock data per the contract.
+ *              analysis state and handleAnalyze, sign-in screens, integrations screen, repo connect screen,
+ *              settings screen, welcome screen, loading/offline states, and the tabbed shell.
+ * Status:      REAL — session, live repo detection, real repository analysis, and feature-driven tabs wired.
  * Depends on:  extension/src/types/mode.ts, extension/src/services/repoDetector.ts, extension/src/services/api.ts,
  *              extension/src/components/*, extension/src/tabs/*, extension/src/mocks/mockData.ts
  */
@@ -894,7 +894,7 @@ export default function App() {
         {session.status === "offline" ? (
           <div style={{ textAlign: "center", padding: "20px" }}>
             <p style={{ color: "#f97316", marginBottom: "12px" }}>
-              Backend unreachable — showing mock data.
+              Backend offline — live GitHub data active.
             </p>
             <button
               type="button"
@@ -1044,7 +1044,7 @@ export default function App() {
                 fontSize: "12px",
               }}
             >
-              <span>Backend unreachable — showing mock data.</span>
+              <span>Backend offline — live GitHub data active.</span>
               <button
                 type="button"
                 onClick={() => setSessionCheck((tick) => tick + 1)}
@@ -1151,7 +1151,7 @@ export default function App() {
               fontSize: "12px",
             }}
           >
-            <span>Backend unreachable — showing mock data.</span>
+            <span>Backend offline — live GitHub data active.</span>
             <button
               type="button"
               onClick={() => setSessionCheck((tick) => tick + 1)}

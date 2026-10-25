@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.modes import CurrentUser, UserMode, mode_has_feature, require_feature
 from app.core.security import get_current_user
-from app.integrations import integration_status
+from app.integrations.health import integration_health
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 

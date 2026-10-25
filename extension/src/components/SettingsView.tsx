@@ -31,8 +31,8 @@ export function SettingsView({
   const [menuOpen, setMenuOpen] = useState(false);
   const [saveHovered, setSaveHovered] = useState(false);
 
-  const username = user?.github_login || "purvadhole";
-  const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
+  const username = user?.github_login || "Developer";
+  const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "D";
 
   const handleToggleExternalLlm = () => {
     const newVal = !allowExternalLlm;

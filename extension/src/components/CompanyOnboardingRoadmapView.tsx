@@ -181,11 +181,11 @@ export function CompanyOnboardingRoadmapView({
   const [showAiMentor, setShowAiMentor] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  const repoName = repo.repo || "payment-service";
-  const repoOwner = repo.owner || "acme";
+  const repoName = repo.repo || "";
+  const repoOwner = repo.owner || "";
   const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
 
-  const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
+  const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "D";
 
   const totalSteps = 8;
   const completedCount = completedSteps.length;

@@ -27,7 +27,7 @@ export interface OpenSourceExpandedViewProps {
   analyzeError?: string | null;
   onRetryAnalysis?: () => void;
   onTabChange: (tab: ExpandedTab) => void;
-  onClose: () => void; // Return to Screen 01
+  onClose: () => void;
   onOpenAiMentor?: () => void;
 }
 
@@ -43,11 +43,12 @@ interface ChatMessage {
  * ========================================================================================= */
 function OctocatIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
       <path
         fillRule="evenodd"
         clipRule="evenodd"
-        d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"
+        d="M12 2C6.477 2 2 6.484 2 12.017C2 16.446 4.87 20.198 8.84 21.523C9.34 21.616 9.52 21.306 9.52 21.042C9.52 20.806 9.51 20.007 9.51 19.167C6.73 19.771 6.14 17.828 6.14 17.828C5.68 16.671 5.03 16.362 5.03 16.362C4.12 15.742 5.1 15.755 5.1 15.755C6.1 15.827 6.63 16.786 6.63 16.786C7.52 18.318 8.97 17.876 9.54 17.62C9.63 16.974 9.89 16.531 10.17 16.279C7.95 16.027 5.62 15.166 5.62 11.332C5.62 10.239 6.01 9.348 6.66 8.649C6.55 8.398 6.21 7.378 6.76 6.002C6.76 6.002 7.6 5.733 9.51 7.027C10.31 6.804 11.16 6.693 12 6.689C12.84 6.693 13.69 6.804 14.49 7.027C16.4 5.733 17.24 6.002 17.24 6.002C17.79 7.378 17.45 8.398 17.34 8.649C17.99 9.348 18.38 10.239 18.38 11.332C18.38 15.176 16.04 16.024 13.82 16.271C14.18 16.582 14.5 17.2 14.5 18.156C14.5 19.525 14.49 20.627 14.49 20.963C14.49 21.229 14.67 21.545 15.18 21.444C19.14 20.111 22 16.416 22 12.017C22 6.484 17.522 2 12 2Z"
+        fill="#18181b"
       />
     </svg>
   );
@@ -58,6 +59,8 @@ function DocIcon() {
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
       <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
     </svg>
   );
 }
@@ -73,10 +76,11 @@ function FolderIcon() {
 function ArchitectureIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="9" y="3" width="6" height="5" rx="1" />
-      <rect x="3" y="16" width="6" height="5" rx="1" />
-      <rect x="15" y="16" width="6" height="5" rx="1" />
-      <path d="M12 8v4m-6 4v-2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v2" />
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
     </svg>
   );
 }
@@ -96,6 +100,7 @@ function UsersIcon() {
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
       <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   );
 }
@@ -103,16 +108,7 @@ function UsersIcon() {
 function SparkleIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.17-6.83l-2.83 2.83m-8 8l-2.83 2.83m0-13.66l2.83 2.83m8 8l2.83 2.83" />
-    </svg>
-  );
-}
-
-function GearIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      <path d="M12 2 L13.5 9.5 L21 11 L13.5 12.5 L12 20 L10.5 12.5 L3 11 L10.5 9.5 Z" />
     </svg>
   );
 }
@@ -347,18 +343,21 @@ export function OpenSourceExpandedView({
           />
         )}
 
-        {activeTab === "ai_mentor" && (
-          <AiMentorContent repoName={repoName} repoOwner={repoOwner} />
-        )}
+            {activeTab === "ai_mentor" && (
+              <AiMentorContent bundle={bundle} repoName={repoName} repoOwner={repoOwner} />
+            )}
+          </>
+        ) : null}
       </main>
     </div>
   );
 }
 
 /* =========================================================================================
- * SCREEN 02 — REPOSITORY OVERVIEW
+ * SCREEN 02 — REPOSITORY OVERVIEW (LIVE GITHUB DATA)
  * ========================================================================================= */
 function OverviewContent({
+  bundle,
   repoName,
   repoOwner,
   repoUrl,
@@ -369,6 +368,7 @@ function OverviewContent({
   onRetryAnalysis,
   onNavigate,
 }: {
+  bundle: LiveRepoBundle;
   repoName: string;
   repoOwner: string;
   repoUrl: string;
@@ -540,7 +540,7 @@ function OverviewContent({
             color: "#6b7280",
           }}
         >
-          PROJECT STRUCTURE
+          PROJECT STRUCTURE ({bundle.contents.length} root items)
         </h3>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -620,96 +620,54 @@ function OverviewContent({
         </div>
       </div>
 
-      {/* Action Buttons */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "22px" }}>
+      {/* Action Navigation Buttons */}
+      <div style={{ display: "flex", gap: "10px" }}>
         <button
           type="button"
           onClick={() => onNavigate("architecture")}
           style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            padding: "11px 16px",
-            backgroundColor: "#f79f24",
-            border: "2px solid #000000",
-            borderRadius: "7px",
-            boxShadow: "2.5px 2.5px 0px #000000",
+            flex: 1,
+            padding: "10px 14px",
+            backgroundColor: "#ffffff",
+            border: "1.5px solid #27272a",
+            borderRadius: "8px",
+            boxShadow: "2px 2px 0px #000000",
             fontWeight: 800,
-            fontSize: "13px",
-            color: "#18181b",
+            fontSize: "12.5px",
             cursor: "pointer",
-            boxSizing: "border-box",
           }}
         >
           <ArchitectureIcon />
           <span>Explore Architecture →</span>
         </button>
-
         <button
           type="button"
           onClick={() => onNavigate("setup")}
           style={{
-            width: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            padding: "11px 16px",
-            backgroundColor: "#ffffff",
-            border: "1.5px solid #27272a",
-            borderRadius: "7px",
+            flex: 1,
+            padding: "10px 14px",
+            backgroundColor: "#f79f24",
+            border: "2px solid #000000",
+            borderRadius: "8px",
             boxShadow: "2px 2px 0px #000000",
-            fontWeight: 700,
-            fontSize: "13px",
-            color: "#18181b",
+            fontWeight: 800,
+            fontSize: "12.5px",
             cursor: "pointer",
-            boxSizing: "border-box",
           }}
         >
           <GearIcon />
           <span>View Setup Guide →</span>
         </button>
       </div>
-
-      {/* SOURCE EVIDENCE */}
-      <div
-        style={{
-          borderTop: "1px dashed #d1c7b7",
-          paddingTop: "12px",
-          display: "flex",
-          alignItems: "center",
-          gap: "6px",
-          fontSize: "11px",
-          color: "#6b7280",
-          flexWrap: "wrap",
-        }}
-      >
-        <span style={{ fontWeight: 700, color: "#18181b" }}>SOURCE EVIDENCE</span>
-        <span>•</span>
-        <a
-          href={repoUrl}
-          target="_blank"
-          rel="noreferrer"
-          style={{
-            color: "#2563eb",
-            fontWeight: 600,
-            textDecoration: "underline",
-            wordBreak: "break-all",
-          }}
-        >
-          {repoUrl} ↗
-        </a>
-      </div>
     </div>
   );
 }
 
 /* =========================================================================================
- * SCREEN 03 — ARCHITECTURE EXPLORER
+ * SCREEN 03 — ARCHITECTURE EXPLORER (DERIVED FROM REAL REPO TREE)
  * ========================================================================================= */
 function ArchitectureContent({
+  bundle,
   repoName,
   repoOwner,
   repoUrl,
@@ -719,6 +677,7 @@ function ArchitectureContent({
   selectedNode,
   onSelectNode,
 }: {
+  bundle: LiveRepoBundle;
   repoName: string;
   repoOwner: string;
   repoUrl: string;
@@ -940,9 +899,10 @@ function ArchitectureContent({
 }
 
 /* =========================================================================================
- * SCREEN 04 — SETUP & TESTING GUIDE
+ * SCREEN 04 — SETUP & TESTING GUIDE (DERIVED FROM REAL README & MANIFESTS)
  * ========================================================================================= */
 function SetupTestingContent({
+  bundle,
   repoName,
   repoOwner,
   repoUrl,
@@ -951,6 +911,7 @@ function SetupTestingContent({
   copiedKey,
   onCopy,
 }: {
+  bundle: LiveRepoBundle;
   repoName: string;
   repoOwner: string;
   repoUrl: string;
@@ -1024,16 +985,10 @@ function SetupTestingContent({
             </div>
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "8px 10px",
-                backgroundColor: "#ffffff",
-                border: "1.5px solid #27272a",
-                borderRadius: "6px",
-                boxShadow: "1.5px 1.5px 0px #000000",
-                fontFamily: "ui-monospace, monospace",
-                fontSize: "12px",
+                padding: "3px 8px",
+                backgroundColor: "#f3f4f6",
+                borderRadius: "4px",
+                fontSize: "11.5px",
                 fontWeight: 600,
                 color: "#18181b",
                 overflowX: "auto",
@@ -1058,6 +1013,7 @@ function SetupTestingContent({
             </div>
           </div>
         </div>
+      </div>
 
         {/* Step 2: Install */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
@@ -1083,14 +1039,11 @@ function SetupTestingContent({
               Install dependencies
             </div>
             <div
+              key={idx}
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "8px 10px",
                 backgroundColor: "#ffffff",
                 border: "1.5px solid #27272a",
-                borderRadius: "6px",
+                borderRadius: "8px",
                 boxShadow: "1.5px 1.5px 0px #000000",
                 fontFamily: "ui-monospace, monospace",
                 fontSize: "12px",
@@ -1104,20 +1057,26 @@ function SetupTestingContent({
                 type="button"
                 onClick={() => onCopy(installCmd, "step2")}
                 style={{
-                  background: "none",
-                  border: "none",
+                  padding: "4px 8px",
+                  border: "1px solid #27272a",
+                  borderRadius: "4px",
+                  backgroundColor: copiedKey === `step-${idx}` ? "#dcfce7" : "#ffffff",
+                  color: copiedKey === `step-${idx}` ? "#166534" : "#18181b",
+                  fontSize: "11px",
+                  fontWeight: 600,
                   cursor: "pointer",
-                  fontSize: "13px",
-                  padding: "0 4px",
-                  display: "inline-flex",
+                  display: "flex",
                   alignItems: "center",
+                  gap: "4px",
+                  flexShrink: 0,
                 }}
               >
                 {copiedKey === "step2" ? "✓" : <CopyIcon />}
               </button>
             </div>
-          </div>
+          ))}
         </div>
+      </div>
 
         {/* Step 3: Run Tests */}
         <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
@@ -1143,14 +1102,11 @@ function SetupTestingContent({
               Run test suite
             </div>
             <div
+              key={idx}
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "8px 10px",
                 backgroundColor: "#ffffff",
                 border: "1.5px solid #27272a",
-                borderRadius: "6px",
+                borderRadius: "8px",
                 boxShadow: "1.5px 1.5px 0px #000000",
                 fontFamily: "ui-monospace, monospace",
                 fontSize: "12px",
@@ -1164,13 +1120,17 @@ function SetupTestingContent({
                 type="button"
                 onClick={() => onCopy(testCmd, "step3")}
                 style={{
-                  background: "none",
-                  border: "none",
+                  padding: "4px 8px",
+                  border: "1px solid #27272a",
+                  borderRadius: "4px",
+                  backgroundColor: copiedKey === `test-${idx}` ? "#dcfce7" : "#ffffff",
+                  color: copiedKey === `test-${idx}` ? "#166534" : "#18181b",
+                  fontSize: "11px",
+                  fontWeight: 600,
                   cursor: "pointer",
-                  fontSize: "13px",
-                  padding: "0 4px",
-                  display: "inline-flex",
+                  display: "flex",
                   alignItems: "center",
+                  gap: "4px",
                 }}
               >
                 {copiedKey === "step3" ? "✓" : <CopyIcon />}
@@ -1195,9 +1155,10 @@ function SetupTestingContent({
 }
 
 /* =========================================================================================
- * SCREEN 05 — CONTRIBUTION ASSISTANT
+ * SCREEN 05 — CONTRIBUTIONS ASSISTANT (REAL GITHUB ISSUES)
  * ========================================================================================= */
 function ContributionsContent({
+  bundle,
   repoName,
   repoOwner,
   repoUrl,
@@ -1208,6 +1169,7 @@ function ContributionsContent({
   onToggleChecklist,
   onOpenAiMentor,
 }: {
+  bundle: LiveRepoBundle;
   repoName: string;
   repoOwner: string;
   repoUrl: string;
@@ -1320,20 +1282,18 @@ function ContributionsContent({
         )}
       </div>
 
-      {/* Proposed Checklist */}
+      {/* Contribution Checklist */}
       <div
         style={{
-          padding: "12px 14px",
+          padding: "14px",
           backgroundColor: "#ffffff",
           border: "1.5px solid #27272a",
           borderRadius: "8px",
           boxShadow: "2px 2px 0px #000000",
-          marginBottom: "16px",
-          boxSizing: "border-box",
         }}
       >
-        <div style={{ fontSize: "10.5px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: "8px" }}>
-          PROPOSED CHECKLIST
+        <div style={{ fontWeight: 800, fontSize: "13px", color: "#18181b", marginBottom: "8px" }}>
+          Contribution Checklist {activeIssue ? `for #${activeIssue.number}` : ""}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12px" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
@@ -1380,16 +1340,20 @@ function ContributionsContent({
 }
 
 /* =========================================================================================
- * SCREEN 06 — AI MENTOR CHAT
+ * SCREEN 06 — AI MENTOR (GROUNDED IN LIVE REPO CONTEXT)
  * ========================================================================================= */
 function AiMentorContent({
+  bundle,
   repoName,
   repoOwner,
 }: {
+  bundle: LiveRepoBundle;
   repoName: string;
   repoOwner: string;
 }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<
+    Array<{ id: string; sender: "user" | "ai"; text: string; sources?: string[] }>
+  >([
     {
       id: "welcome",
       sender: "ai",
@@ -1410,9 +1374,9 @@ function AiMentorContent({
     const text = (textToSend || inputVal).trim();
     if (!text) return;
 
-    const userMsg: ChatMessage = {
+    const userMsg = {
       id: Date.now().toString(),
-      sender: "user",
+      sender: "user" as const,
       text,
     };
     setMessages((prev) => [...prev, userMsg]);
@@ -1592,3 +1556,4 @@ function AiMentorContent({
     </div>
   );
 }
+

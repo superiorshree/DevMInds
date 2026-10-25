@@ -24,6 +24,8 @@ returned. Rate limits (GitHub answers 403/429) raise ``RateLimitError`` so the
 route can turn it into HTTP 429 with a message the user understands.
 """
 
+from __future__ import annotations
+
 import base64
 from typing import Any
 from urllib.parse import quote
@@ -645,6 +647,13 @@ def _looks_like_rate_limit(response: httpx.Response) -> bool:
             "contributing": data.get("license", {}).get("key"),
             "conduct": data.get("code_of_conduct"),
         }
+
+
+def _looks_like_rate_limit(response: httpx.Response) -> bool:
+    """GitHub signals rate limiting with headers instead of a dedicated status."""
+    if response.headers.get("x-ratelimit-remaining") == "0":
+        return True
+    return "retry-after" in response.headers
 
 
 # Convenience: attach GithubFile model to the module for tests/imports
