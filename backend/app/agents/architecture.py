@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from app.ai import gateway
 from app.ai.errors import PrivateAIUnavailable, ProviderError
 from app.core.modes import UserMode
+from app.services.answer_validator import validate_bundle
 from app.schemas.architecture import ArchitectureBundle
 
 PROMPTS_DIR = Path(__file__).resolve().parents[1] / "prompts"
@@ -214,7 +215,33 @@ async def explain_architecture(
     for _attempt in range(2):
         text = await _request_reply(messages, repository_context, company_context)
         try:
-            return _merge_reply(verified, _parse_reply(text))
+            bundled = _merge_reply(verified, _parse_reply(text))
+            # Validate against the real repo tree (files from repository_context)
+            # Only validate if there are files to validate against;
+            # otherwise rely on _merge_reply's grounding in facts.
+            repo_files = (
+                repository_context.get("files", [])
+                if isinstance(repository_context, dict)
+                else getattr(repository_context, "files", [])
+            )
+
+            if repo_files:
+                file_paths = [
+                    path
+                    for item in repo_files
+                    if isinstance(path := (
+                        item.get("path")
+                    if isinstance(item, dict)
+                    else getattr(item, "path", None)
+                ), str)
+                and path.strip()
+            ]
+
+                if file_paths:
+                    validated, _removed = validate_bundle(bundled, file_paths)
+                    return validated
+
+            return bundled
         except ValueError as exc:
             last_error = str(exc)[:500]
             messages = messages + [
