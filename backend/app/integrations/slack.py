@@ -84,7 +84,14 @@ class SlackConnector(BaseConnector):
         """Return True when the bot token and channel ids are configured."""
         return _credentials() is not None
 
-    async def fetch(self, repo_full_name: str, query: str) -> CompanyContext:
+    def fetch(self, repo_full_name: str = "", query: str = "") -> Any:
+        if not repo_full_name and not query:
+            raise NotImplementedError("Slack adapter does not support fetch without parameters")
+        async def _run():
+            return await self._async_fetch(repo_full_name, query)
+        return _run()
+
+    async def _async_fetch(self, repo_full_name: str = "", query: str = "") -> CompanyContext:
         """Return Slack messages about a repository as frozen CompanyItems.
 
         Reads the recent history of every channel in ``SLACK_CHANNEL_IDS``,
@@ -363,3 +370,6 @@ def _first_words(text: str, limit: int = TITLE_WORDS) -> str:
     if len(words) > limit:
         return head + "..."
     return head
+
+
+SlackAdapter = SlackConnector

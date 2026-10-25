@@ -8,16 +8,17 @@
 import { useEffect, useState } from "react";
 import type { SessionUser } from "../services/api";
 import type { RepoRef } from "../services/repoDetector";
-import {
-  fetchRepoDetails,
-  fetchRepoLanguages,
-  type GitHubRepoDetails,
-  RateLimitError,
-} from "../services/githubApi";
+import type { ArchitectureBundle } from "../types/architecture";
+import type { LiveRepoSnapshot } from "../services/githubApi";
 
 export interface OpenSourceMainScreenProps {
   repo: RepoRef;
   user: SessionUser | null;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
+  isAnalyzing?: boolean;
+  analyzeError?: string | null;
+  onRetryAnalysis?: () => void;
   onOpenFeature: (feature: "overview" | "architecture" | "setup" | "contributions") => void;
   onOpenAiMentor: () => void;
   onChangeMode?: () => void;
@@ -28,6 +29,11 @@ export interface OpenSourceMainScreenProps {
 export function OpenSourceMainScreen({
   repo,
   user,
+  architectureData,
+  liveRepo,
+  isAnalyzing = false,
+  analyzeError = null,
+  onRetryAnalysis,
   onOpenFeature,
   onOpenAiMentor,
   onChangeMode,
@@ -44,40 +50,13 @@ export function OpenSourceMainScreen({
   const [retryCount, setRetryCount] = useState(0);
 
   const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
-  const repoName = details?.name || repo.repo;
-  const repoOwner = details?.owner || repo.owner;
-  const repoUrl = details?.html_url || `https://github.com/${repo.owner}/${repo.repo}`;
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError(null);
-
-    Promise.all([
-      fetchRepoDetails(repo.owner, repo.repo),
-      fetchRepoLanguages(repo.owner, repo.repo),
-    ])
-      .then(([d, langs]) => {
-        if (!active) return;
-        setDetails(d);
-        setLanguages(Object.keys(langs).slice(0, 6));
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        if (err instanceof RateLimitError) {
-          setError(`GitHub API rate limit reached. Limit will reset at ${err.resetTime}.`);
-        } else {
-          setError(err instanceof Error ? err.message : "Failed to load live repository data");
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [repo.owner, repo.repo, retryCount]);
+  const repoName = repo.repo || liveRepo?.metadata?.repo || "";
+  const repoOwner = repo.owner || liveRepo?.metadata?.owner || "";
+  const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
+  const repoDescription =
+    architectureData?.overview?.summary ||
+    liveRepo?.metadata?.description ||
+    (isAnalyzing ? "Analyzing repository structure and architecture..." : "Public GitHub repository.");
 
   return (
     <div
@@ -391,9 +370,9 @@ export function OpenSourceMainScreen({
                 </div>
               </div>
 
-              <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#4b5563", lineHeight: 1.45 }}>
-                {details?.description || "Live repository connected. No description provided on GitHub."}
-              </p>
+          <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#4b5563", lineHeight: 1.45 }}>
+            {repoDescription}
+          </p>
 
               {/* Technologies Pills */}
               {languages.length > 0 && (
@@ -417,39 +396,94 @@ export function OpenSourceMainScreen({
                 </div>
               )}
 
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "12px" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
-                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                </svg>
-                <a
-                  href={repoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ fontSize: "12px", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+          {/* Analysis Status Badge */}
+          {isAnalyzing ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#fef3c7",
+                color: "#92400e",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#f59e0b" }} />
+              <span>Analyzing repository...</span>
+            </div>
+          ) : analyzeError ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#fee2e2",
+                color: "#991b1b",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#ef4444" }} />
+              <span>Live GitHub facts loaded</span>
+              {onRetryAnalysis && (
+                <button
+                  type="button"
+                  onClick={onRetryAnalysis}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#2563eb",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    padding: 0,
+                    marginLeft: "4px",
+                  }}
                 >
-                  github.com/{repoOwner}/{repoName}
-                </a>
-              </div>
-
-              {/* Analysis Complete Badge */}
-              <div
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "6px",
-                  padding: "4px 10px",
-                  backgroundColor: "#dcfce7",
-                  color: "#166534",
-                  borderRadius: "9999px",
-                  fontSize: "11.5px",
-                  fontWeight: 700,
-                }}
-              >
-                <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
-                <span>Live GitHub Data Connected</span>
-              </div>
-            </>
+                  Retry AI
+                </button>
+              )}
+            </div>
+          ) : architectureData ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#dcfce7",
+                color: "#166534",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
+              <span>Analysis complete</span>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#dcfce7",
+                color: "#166534",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
+              <span>Repository connected</span>
+            </div>
           )}
         </div>
 

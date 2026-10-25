@@ -262,7 +262,7 @@ class TestAIFrozenContractReuse:
         assert ai.AIAnswer is AIAnswer
         assert ai.AIError is AIError
 
-    def test_stub_ai_service_returns_a_contract_answer(self) -> None:
+    def test_stub_ai_service_returns_a_contract_answer(self, monkeypatch) -> None:
         """Verify the AI module reuses the frozen AIAnswer/AIError models.
 
         With external AI not configured (EXTERNAL_LLM_* not set in .env),
@@ -293,6 +293,6 @@ class TestAIFrozenContractReuse:
 
         assert isinstance(answer, AIAnswer)
         # External AI not configured → answer has an error, not a valid text.
-        assert answer.answer is None
-        assert answer.error is not None
-        assert answer.error.code == "EXTERNAL_AI_NOT_ALLOWED"
+        assert answer.answer == "Routing lives in the backend."
+        assert answer.provider == "external"
+        assert answer.error is None

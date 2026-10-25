@@ -6,8 +6,7 @@
 # Depends on:  backend/app/core/config.py (get_settings),
 #              backend/app/schemas/contracts.py (AIAnswer, AIError),
 #              backend/app/ai/gateway.py, backend/app/ai/ollama_provider.py,
-#              backend/app/ai/external_provider.py,
-#              backend/app/agents/mentor.py (MentorAgent)
+#              backend/app/ai/external_provider.py, backend/app/agents/mentor.py
 
 from typing import Any, Dict, List, Literal, Optional
 
@@ -74,17 +73,13 @@ class AIService:
                 ),
             )
 
-        return await self._agent().answer(
+        from app.agents.mentor import answer_mentor_question
+        return await answer_mentor_question(
             question=question,
             repository_context=repository_context,
             company_context=company_context,
             mode=mode,
         )
-
-    async def _private_hint(self) -> str:
-        """Explain why Ollama failed, with the exact command to fix it."""
-        from app.agents.mentor import get_private_ai_hint
-        return await get_private_ai_hint()
 
     async def health(self) -> Dict[str, HealthStatus]:
         """Report both providers: {"ollama": ..., "external": ...}.

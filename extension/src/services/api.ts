@@ -3,12 +3,12 @@
  * Owner:       Shreyansh
  * Purpose:     The single HTTP client for the extension — every backend call goes through here, with the base URL read from env.
  * Contains:    API_BASE_URL, BackendUnreachableError, session-token storage helpers, request() wrapper,
- *              analyzeRepository, getMe, getMode, setMode, signIn, signOut (plus the analyze /
+ *              and the typed functions getMe, getMode, setMode, signIn, signOut (plus the analyze /
  *              architecture / context / chat / integrations stubs other tabs will call).
  * Status:      IMPLEMENTED — sign-in, mode and session handling wired; data endpoints typed per the contract,
  *              backend-unreachable requests fall back to mock/local data so the UI still renders.
  * Depends on:  extension/src/types/mode.ts, extension/src/types/architecture.ts,
- *              docs/API_CONTRACT.md (GET /api/auth/me, /api/auth/github, /api/me/mode, POST /api/auth/logout, POST /api/repositories/analyze)
+ *              docs/API_CONTRACT.md (GET /api/auth/me, /api/auth/github, /api/me/mode, POST /api/auth/logout)
  */
 
 import type { ArchitectureBundle, ChatResponse, IntegrationStatus } from "../types/architecture";
@@ -225,30 +225,19 @@ export function analyze(owner: string, name: string, branch = "main"): Promise<{
   });
 }
 
-/**
- * Analyze a repository via POST /api/repositories/analyze with the session token,
- * returning the resulting architecture bundle.
- */
-export async function analyzeRepository(
-  owner: string,
-  repo: string
-): Promise<ArchitectureBundle> {
-  const result = await request<ArchitectureBundle | { job_id: string }>(
-    "/api/repositories/analyze",
-    {
-      method: "POST",
-      body: JSON.stringify({ owner, name: repo, branch: "main" }),
-    }
-  );
-  if ("overview" in result && "technologies" in result) {
-    return result;
-  }
-  return getArchitecture(owner, repo);
-}
-
 /** Fetch the architecture bundle for a repository. */
 export function getArchitecture(owner: string, name: string): Promise<ArchitectureBundle> {
   return request<ArchitectureBundle>(`/api/repositories/${owner}/${name}/architecture`);
+}
+
+/** Complete repository analysis by initiating analysis and fetching the architecture bundle. */
+export async function analyzeRepository(owner: string, name: string, branch = "main"): Promise<ArchitectureBundle> {
+  try {
+    await analyze(owner, name, branch);
+  } catch (err) {
+    console.warn("Analyze POST returned error, falling back to direct GET architecture:", err);
+  }
+  return getArchitecture(owner, name);
 }
 
 /** Fetch Jira + Confluence context (company mode only; 403 in contributor mode). */
@@ -260,7 +249,7 @@ export function getContext(owner: string, name: string): Promise<unknown> {
 export function postChat(owner: string, name: string, question: string): Promise<ChatResponse> {
   return request<ChatResponse>("/api/chat", {
     method: "POST",
-    body: JSON.stringify({ owner, name, question }),
+    body: JSON.stringify({ owner, name, repo: name, question }),
   });
 }
 
@@ -275,4 +264,4 @@ export function shareToSlack(owner: string, name: string, channel: string): Prom
     method: "POST",
     body: JSON.stringify({ owner, name, channel }),
   });
-}
+}

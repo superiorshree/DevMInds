@@ -16,19 +16,23 @@ import { useEffect, useState } from "react";
 import type { ModeFeatures, UserMode } from "./types/mode";
 import type { SessionUser } from "./services/api";
 import {
-  BackendUnreachableError,
   analyzeRepository,
+  BackendUnreachableError,
+  getContext,
   getMe,
   getMode,
+  listIntegrations,
   setMode,
   signIn,
   signOut,
 } from "./services/api";
-import type { ArchitectureBundle } from "./types/architecture";
+import type { ArchitectureBundle, IntegrationStatus } from "./types/architecture";
 import type { ModeResponse } from "./services/api";
 import { localModeResponse } from "./services/api";
 import type { RepoRef } from "./services/repoDetector";
 import { detectRepoFromTabs } from "./services/repoDetector";
+import type { LiveRepoSnapshot } from "./services/githubApi";
+import { fetchLiveRepoSnapshot } from "./services/githubApi";
 import { SignInView } from "./components/SignInView";
 import { OpenSourceSignInView } from "./components/OpenSourceSignInView";
 import { OpenSourceWelcomeView } from "./components/OpenSourceWelcomeView";
@@ -45,11 +49,7 @@ import { ContributeTab } from "./tabs/ContributeTab";
 import { ContextTab } from "./tabs/ContextTab";
 import { AskAITab } from "./tabs/AskAITab";
 import { IntegrationDrawer } from "./tabs/IntegrationDrawer";
-import {
-  getLiveRepoBundle,
-  bundleToArchitecture,
-  RateLimitError,
-} from "./services/githubApi";
+// Mock imports removed — all data fetched live from backend & GitHub API
 
 /** Where the session stands: checking, signed out, signed in, or backend unreachable. */
 type SessionState =
@@ -529,43 +529,78 @@ export default function App() {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [analyzeStarted, setAnalyzeStarted] = useState(false);
   const [analyzeHovered, setAnalyzeHovered] = useState(false);
-  const [analysis, setAnalysis] = useState<ArchitectureBundle | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [architectureData, setArchitectureData] = useState<ArchitectureBundle | null>(null);
+  const [liveRepo, setLiveRepo] = useState<LiveRepoSnapshot | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [companyContext, setCompanyContext] = useState<{ items: any[]; errors: any[] } | null>(null);
+  const [integrationsList, setIntegrationsList] = useState<IntegrationStatus[]>([]);
 
-  /** Trigger repository analysis using analyzeRepository from api.ts */
-  const handleAnalyze = async (): Promise<void> => {
-    if (!repo) return;
-    setAnalyzing(true);
-    setAnalysisError(null);
-    try {
-      const result = await analyzeRepository(repo.owner, repo.repo);
-      setAnalysis(result);
-    } catch (error) {
-      if (error instanceof BackendUnreachableError || session.status === "offline") {
-        try {
-          const liveBundle = await getLiveRepoBundle(repo.owner, repo.repo);
-          setAnalysis(bundleToArchitecture(liveBundle));
-        } catch (liveErr) {
-          if (liveErr instanceof RateLimitError) {
-            setAnalysisError(`GitHub API rate limit reached. Limit will reset at ${liveErr.resetTime}.`);
-          } else {
-            setAnalysisError(liveErr instanceof Error ? liveErr.message : "Failed to analyze repository via live GitHub data");
-          }
-        }
-      } else {
-        setAnalysisError(error instanceof Error ? error.message : "Failed to analyze repository");
-      }
-    } finally {
-      setAnalyzing(false);
-    }
-  };
-
-  // Reset analysis when repository changes
+  // Fetch real integration statuses
   useEffect(() => {
-    setAnalysis(null);
-    setAnalysisError(null);
+    listIntegrations()
+      .then((res) => {
+        if (res?.providers) setIntegrationsList(res.providers);
+      })
+      .catch((err) => {
+        console.warn("Failed to load integrations status:", err);
+      });
+  }, [session.status]);
+
+  // Fetch company context in company mode
+  useEffect(() => {
+    if (modeInfo.mode === "company" && repo?.owner && repo?.repo) {
+      let cancelled = false;
+      getContext(repo.owner, repo.repo)
+        .then((ctx: any) => {
+          if (!cancelled && ctx) setCompanyContext(ctx);
+        })
+        .catch((err) => {
+          console.warn("Failed to fetch company context:", err);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [modeInfo.mode, repo?.owner, repo?.repo]);
+
+  // Automatically fetch live GitHub facts whenever repo changes
+  useEffect(() => {
+    if (!repo?.owner || !repo?.repo) {
+      setLiveRepo(null);
+      return;
+    }
+    let cancelled = false;
+    fetchLiveRepoSnapshot(repo.owner, repo.repo)
+      .then((snapshot) => {
+        if (!cancelled) setLiveRepo(snapshot);
+      })
+      .catch((err) => {
+        console.warn("Failed to fetch live GitHub repository snapshot:", err);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [repo?.owner, repo?.repo]);
+
+  async function triggerAnalysis(targetRepo?: RepoRef | null) {
+    const current = targetRepo || repo;
+    if (!current) return;
+    setIsAnalyzing(true);
+    setAnalyzeError(null);
+    setAnalyzeStarted(true);
+
+    try {
+      const bundle = await analyzeRepository(current.owner, current.repo);
+      setArchitectureData(bundle);
+    } catch (err: any) {
+      console.warn("Analysis request failed:", err);
+      setAnalyzeError(err?.message || "Failed to analyze repository.");
+      setArchitectureData(null);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }
   const [openSourceView, setOpenSourceView] = useState<"main" | "expanded" | "ai_mentor">("main");
   const [expandedTab, setExpandedTab] = useState<ExpandedTab>("overview");
   // Bumped by the "Retry" button to re-check the session after a backend outage.
@@ -739,6 +774,7 @@ export default function App() {
       return (
         <CompanyRepoConnectView
           user={null}
+          currentRepo={repo}
           onBack={() => setSignedOutStep("company_integrations")}
           onGoToIntegrations={() => setSignedOutStep("company_integrations")}
           onGoToSettings={() => setSignedOutStep("settings")}
@@ -817,6 +853,7 @@ export default function App() {
       return (
         <CompanyRepoConnectView
           user={user}
+          currentRepo={repo}
           onBack={() => setCompanyStep("integrations")}
           onGoToIntegrations={() => setCompanyStep("integrations")}
           onGoToSettings={() => setShowSettings(true)}
@@ -892,6 +929,9 @@ export default function App() {
       <CompanyOnboardingRoadmapView
         repo={repo}
         user={user}
+        architectureData={architectureData}
+        liveRepo={liveRepo}
+        companyContext={companyContext}
         onExploreStep={(stepNum) => {
           // Handled internally by CompanyOnboardingRoadmapView & CompanyOnboardingStepDetailView
           if (stepNum === 1) setActiveTab("overview");
@@ -945,10 +985,7 @@ export default function App() {
           <button
             type="button"
             id="analyze-repo-btn"
-            onClick={() => {
-              setAnalyzeStarted(true);
-              void handleAnalyze();
-            }}
+            onClick={() => void triggerAnalysis()}
             onMouseEnter={() => setAnalyzeHovered(true)}
             onMouseLeave={() => setAnalyzeHovered(false)}
             style={{
@@ -1038,6 +1075,11 @@ export default function App() {
         <OpenSourceExpandedView
           repo={repo}
           activeTab={expandedTab}
+          architectureData={architectureData}
+          liveRepo={liveRepo}
+          isAnalyzing={isAnalyzing}
+          analyzeError={analyzeError}
+          onRetryAnalysis={() => void triggerAnalysis()}
           onTabChange={(tab) => setExpandedTab(tab)}
           onClose={() => setOpenSourceView("main")}
           onOpenAiMentor={() => {
@@ -1052,6 +1094,11 @@ export default function App() {
       <OpenSourceMainScreen
         repo={repo}
         user={user}
+        architectureData={architectureData}
+        liveRepo={liveRepo}
+        isAnalyzing={isAnalyzing}
+        analyzeError={analyzeError}
+        onRetryAnalysis={() => void triggerAnalysis()}
         onOpenFeature={(feature) => {
           setExpandedTab(feature);
           setOpenSourceView("expanded");
@@ -1235,48 +1282,63 @@ export default function App() {
         >
           {activeTab === "overview" && (
             <OverviewTab
-              analysis={analysis}
-              loading={analyzing}
-              error={analysisError}
-              onAnalyze={() => void handleAnalyze()}
+              overview={
+                architectureData?.overview ||
+                (liveRepo
+                  ? {
+                      summary: liveRepo.metadata.description || `${repo.owner}/${repo.repo}`,
+                      primary_language: liveRepo.metadata.primaryLanguage,
+                      stars: liveRepo.metadata.stars,
+                      topics: liveRepo.metadata.topics,
+                    }
+                  : undefined)
+              }
+              isLoading={isAnalyzing}
+              error={analyzeError}
+              onRetry={() => void triggerAnalysis()}
             />
           )}
-          {activeTab === "architecture" && analysis && (
-            <ArchitectureTab architecture={analysis} />
-          )}
-          {activeTab === "architecture" && !analysis && (
-            <div style={{ padding: "16px", textAlign: "center", color: "#6b7280" }}>
-              Click "Analyze Repository" in Overview to generate the architecture bundle.
-            </div>
+          {activeTab === "architecture" && (
+            <ArchitectureTab
+              architecture={
+                architectureData ||
+                (liveRepo
+                  ? {
+                      repository: {
+                        owner: liveRepo.metadata.owner,
+                        name: liveRepo.metadata.repo,
+                        branch: liveRepo.metadata.defaultBranch,
+                      },
+                      overview: {
+                        summary: liveRepo.metadata.description || `${repo.owner}/${repo.repo}`,
+                        primary_language: liveRepo.metadata.primaryLanguage,
+                        stars: liveRepo.metadata.stars,
+                        topics: liveRepo.metadata.topics,
+                      },
+                      technologies: liveRepo.languages.map((l) => ({ name: l, category: "language", evidence_files: [] })),
+                      entry_points: [],
+                      components: liveRepo.topFiles.map((f) => ({
+                        id: f.path,
+                        name: f.name,
+                        description: f.type === "dir" ? "Directory" : "File",
+                        files: [f.name],
+                      })),
+                      connections: [],
+                    }
+                  : undefined)
+              }
+              isLoading={isAnalyzing}
+              error={analyzeError}
+              onRetry={() => void triggerAnalysis()}
+            />
           )}
           {activeTab === "contribute" && features.contributeTab && (
-            <ContributeTab
-              guide={
-                analysis?.contributor_guide ?? {
-                  setup_steps: [],
-                  contribution_rules: [],
-                  good_first_issues: [],
-                  maintainers: [],
-                }
-              }
-            />
+            <ContributeTab guide={architectureData?.contributor_guide ?? undefined} />
           )}
           {activeTab === "context" && features.contextTab && (
-            <ContextTab
-              context={
-                analysis?.related_context ?? {
-                  jira_issues: [],
-                  confluence_pages: [],
-                }
-              }
-            />
+            <ContextTab context={architectureData?.related_context} />
           )}
-          {activeTab === "ask" && (
-            <AskAITab
-              owner={repo.owner}
-              repo={repo.repo}
-            />
-          )}
+          {activeTab === "ask" && <AskAITab repo={repo} />}
         </section>
 
         {/* Settings & Integration Drawer CTA */}
@@ -1307,17 +1369,7 @@ export default function App() {
         </button>
 
         <IntegrationDrawer
-          integrations={[
-            {
-              provider: "github",
-              available: true,
-              connected: true,
-              detail: user ? `Signed in as @${user.github_login}` : "Connected to GitHub",
-            },
-            { provider: "jira", available: true, connected: false, detail: "Not connected" },
-            { provider: "confluence", available: true, connected: false, detail: "Not connected" },
-            { provider: "slack", available: true, connected: false, detail: "Not connected" },
-          ]}
+          integrations={integrationsList}
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
         />

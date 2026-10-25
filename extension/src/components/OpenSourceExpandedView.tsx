@@ -1,22 +1,19 @@
 /**
  * File:        extension/src/components/OpenSourceExpandedView.tsx
- * Purpose:     Screen 02 to 05 — Full-size expanded feature views:
- *              - Overview: live description, detected languages, real repo structure
- *              - Architecture: dynamic component flow derived from live repo directories & files
- *              - Setup & Testing: prerequisites, real installation and test commands from README/manifests
- *              - Contributions: real GitHub open issues, labels, and contribution checklist
- *              - Ask AI / AI Mentor: grounded in real repository metadata, files, and README
+ * Purpose:     Native Side Panel view for Open-Source repository exploration:
+ *              - Overview (Screen 02)
+ *              - Architecture (Screen 03)
+ *              - Setup & Testing (Screen 04)
+ *              - Contributions (Screen 05)
+ *              - AI Mentor (Screen 06)
+ *              Fully responsive for Chrome Extension side panel with clean SVGs
+ *              and real-time live data from GitHub and DevMinds backend agents.
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import type { RepoRef } from "../services/repoDetector";
-import {
-  getLiveRepoBundle,
-  type LiveRepoBundle,
-  type ArchitectureNode,
-  type GitHubIssue,
-  RateLimitError,
-} from "../services/githubApi";
+import type { ArchitectureBundle } from "../types/architecture";
+import type { LiveRepoSnapshot } from "../services/githubApi";
 import { postChat } from "../services/api";
 
 export type ExpandedTab = "overview" | "architecture" | "setup" | "contributions" | "ai_mentor";
@@ -24,11 +21,26 @@ export type ExpandedTab = "overview" | "architecture" | "setup" | "contributions
 export interface OpenSourceExpandedViewProps {
   repo: RepoRef;
   activeTab: ExpandedTab;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
+  isAnalyzing?: boolean;
+  analyzeError?: string | null;
+  onRetryAnalysis?: () => void;
   onTabChange: (tab: ExpandedTab) => void;
   onClose: () => void;
   onOpenAiMentor?: () => void;
 }
 
+interface ChatMessage {
+  id: string;
+  sender: "user" | "ai";
+  text: string;
+  sources?: string[];
+}
+
+/* =========================================================================================
+ * CLEAN SVG ICONS
+ * ========================================================================================= */
 function OctocatIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
@@ -113,12 +125,17 @@ function CopyIcon() {
 export function OpenSourceExpandedView({
   repo,
   activeTab,
+  architectureData,
+  liveRepo,
+  isAnalyzing = false,
+  analyzeError = null,
+  onRetryAnalysis,
   onTabChange,
   onClose,
 }: OpenSourceExpandedViewProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [activeIssueId, setActiveIssueId] = useState<number | null>(null);
+  const [selectedArchNode, setSelectedArchNode] = useState<string>("root");
+  const [activeIssue, setActiveIssue] = useState<number | null>(null);
   const [checklist, setChecklist] = useState({
     context: true,
     files: false,
@@ -126,47 +143,9 @@ export function OpenSourceExpandedView({
     pr: false,
   });
 
-  const [bundle, setBundle] = useState<LiveRepoBundle | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
-
-  const repoName = bundle?.details.name || repo.repo;
-  const repoOwner = bundle?.details.owner || repo.owner;
-  const repoUrl = bundle?.details.html_url || `https://github.com/${repo.owner}/${repo.repo}`;
-
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError(null);
-
-    getLiveRepoBundle(repo.owner, repo.repo)
-      .then((data) => {
-        if (!active) return;
-        setBundle(data);
-        if (data.architectureNodes.length > 0) {
-          setSelectedNodeId(data.architectureNodes[0].id);
-        }
-        if (data.issues.length > 0) {
-          setActiveIssueId(data.issues[0].number);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!active) return;
-        if (err instanceof RateLimitError) {
-          setError(`GitHub API rate limit reached. Limit will reset at ${err.resetTime}.`);
-        } else {
-          setError(err instanceof Error ? err.message : "Failed to load repository data from GitHub");
-        }
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [repo.owner, repo.repo, retryCount]);
+  const repoName = repo.repo || liveRepo?.metadata?.repo || "";
+  const repoOwner = repo.owner || liveRepo?.metadata?.owner || "";
+  const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard?.writeText(text);
@@ -188,216 +167,118 @@ export function OpenSourceExpandedView({
         display: "flex",
         flexDirection: "column",
         minHeight: "100vh",
-        width: "100%",
-        maxWidth: "100%",
         backgroundColor: "#faf7f2",
         color: "#18181b",
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-        overflowX: "hidden",
-        boxSizing: "border-box",
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        position: "relative",
       }}
     >
       {/* Top Header Bar */}
       <header
         style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "10px 14px",
+          borderBottom: "1px solid #e5e0d8",
+          backgroundColor: "#faf7f2",
           position: "sticky",
           top: 0,
-          zIndex: 30,
-          backgroundColor: "#faf7f2",
-          borderBottom: "1.5px solid #27272a",
-          padding: "10px 14px 6px",
-          boxSizing: "border-box",
+          zIndex: 20,
         }}
       >
-        {/* Top Row: Back, Logo, Mode Badge, Analysis badge, Close */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: "8px",
-            marginBottom: "8px",
-          }}
-        >
-          {/* Back button + Brand */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <button
-              type="button"
-              onClick={onClose}
-              title="Back to features menu"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "3px 8px",
-                backgroundColor: "#ffffff",
-                border: "1.5px solid #18181b",
-                borderRadius: "6px",
-                boxShadow: "1.5px 1.5px 0px #000000",
-                fontSize: "11px",
-                fontWeight: 700,
-                color: "#18181b",
-                cursor: "pointer",
-              }}
-            >
-              <span>←</span>
-              <span>Back</span>
-            </button>
-
-            {/* Logo */}
-            <div
-              style={{
-                width: "22px",
-                height: "22px",
-                backgroundColor: "#18181b",
-                borderRadius: "4px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#f59e0b",
-                fontFamily: "ui-monospace, monospace",
-                fontWeight: 800,
-                fontSize: "11px",
-              }}
-            >
-              &gt;_
-            </div>
-            <span style={{ fontWeight: 800, fontSize: "14px", color: "#18181b" }}>DevMinds</span>
-          </div>
-
-          {/* Right Status + Close */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <div
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-                fontSize: "10.5px",
-                fontWeight: 700,
-                color: "#15803d",
-                backgroundColor: "#dcfce7",
-                padding: "2px 7px",
-                borderRadius: "12px",
-                border: "1px solid #86efac",
-              }}
-            >
-              <span
-                style={{
-                  width: "5px",
-                  height: "5px",
-                  borderRadius: "50%",
-                  backgroundColor: "#16a34a",
-                }}
-              />
-              Live GitHub Data
-            </div>
-
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              style={{
-                background: "none",
-                border: "none",
-                fontSize: "16px",
-                color: "#4b5563",
-                cursor: "pointer",
-                padding: "2px 4px",
-                lineHeight: 1,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-
-        {/* Repository info strip */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: "11.5px",
-            color: "#4b5563",
-            marginBottom: "8px",
-            flexWrap: "wrap",
-            gap: "4px",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-            <OctocatIcon />
-            <span style={{ fontWeight: 800, color: "#18181b" }}>{repoName}</span>
-            <span style={{ color: "#9ca3af" }}>by {repoOwner}</span>
-            {bundle && bundle.details.stargazers_count > 0 && (
-              <span style={{ color: "#f59e0b", fontWeight: 700 }}>
-                ★ {bundle.details.stargazers_count.toLocaleString()}
-              </span>
-            )}
-          </div>
-          <a
-            href={repoUrl}
-            target="_blank"
-            rel="noreferrer"
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Return to Main Overview"
             style={{
-              color: "#2563eb",
-              textDecoration: "none",
-              fontWeight: 600,
-              display: "inline-flex",
+              display: "flex",
               alignItems: "center",
-              gap: "2px",
+              justifyContent: "center",
+              width: "28px",
+              height: "28px",
+              borderRadius: "6px",
+              backgroundColor: "#ffffff",
+              border: "1.5px solid #27272a",
+              boxShadow: "1.5px 1.5px 0px #000000",
+              cursor: "pointer",
+              padding: 0,
             }}
           >
-            <span>GitHub</span>
-            <span>↗</span>
-          </a>
+            <span style={{ fontSize: "14px", fontWeight: 800, color: "#18181b" }}>←</span>
+          </button>
+          <div>
+            <div style={{ fontSize: "13px", fontWeight: 800, color: "#18181b", lineHeight: 1.2 }}>
+              {repoName}
+            </div>
+            <div style={{ fontSize: "11px", color: "#6b7280" }}>{repoOwner}</div>
+          </div>
         </div>
 
-        {/* Navigation Tabs Bar */}
-        <div
+        {/* External GitHub link */}
+        <a
+          href={repoUrl}
+          target="_blank"
+          rel="noreferrer"
           style={{
-            display: "flex",
+            display: "inline-flex",
             alignItems: "center",
-            gap: "6px",
-            overflowX: "auto",
-            scrollbarWidth: "none",
-            paddingBottom: "4px",
+            gap: "5px",
+            fontSize: "11.5px",
+            color: "#2563eb",
+            fontWeight: 600,
+            textDecoration: "none",
           }}
         >
-          {navTabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => onTabChange(tab.id)}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: "5px",
-                  padding: "6px 11px",
-                  backgroundColor: isActive ? "#f79f24" : "#ffffff",
-                  border: isActive ? "2px solid #000000" : "1.5px solid #27272a",
-                  borderRadius: "6px",
-                  boxShadow: isActive ? "2px 2px 0px #000000" : "1.5px 1.5px 0px #000000",
-                  fontSize: "11.5px",
-                  fontWeight: isActive ? 800 : 600,
-                  color: "#18181b",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                  transition: "all 0.1s ease",
-                }}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center" }}>{tab.icon}</span>
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-        </div>
+          <OctocatIcon />
+          <span>GitHub</span>
+        </a>
       </header>
 
-      {/* Main Content Area */}
+      {/* Navigation Sub-Tabs */}
+      <nav
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+          padding: "6px 10px",
+          backgroundColor: "#f4ede4",
+          borderBottom: "1px solid #e5e0d8",
+          overflowX: "auto",
+        }}
+      >
+        {navTabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => onTabChange(tab.id)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                padding: "6px 10px",
+                borderRadius: "6px",
+                border: isActive ? "1.5px solid #18181b" : "1.5px solid transparent",
+                backgroundColor: isActive ? "#ffffff" : "transparent",
+                boxShadow: isActive ? "1.5px 1.5px 0px #000000" : "none",
+                fontWeight: isActive ? 800 : 600,
+                fontSize: "11.5px",
+                color: isActive ? "#18181b" : "#4b5563",
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {tab.icon}
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* Main Tab Body */}
       <main
         style={{
           flex: 1,
@@ -407,94 +288,60 @@ export function OpenSourceExpandedView({
           boxSizing: "border-box",
         }}
       >
-        {/* Error Alert with Honest Notification */}
-        {error && (
-          <div
-            role="alert"
-            style={{
-              backgroundColor: "#fef2f2",
-              border: "1.5px solid #ef4444",
-              borderRadius: "8px",
-              padding: "12px 14px",
-              marginBottom: "16px",
-              boxShadow: "2px 2px 0px #ef4444",
-            }}
-          >
-            <div style={{ fontWeight: 700, fontSize: "13px", color: "#991b1b", marginBottom: "4px" }}>
-              Unable to load repository data
-            </div>
-            <div style={{ fontSize: "12px", color: "#b91c1c", marginBottom: "8px", lineHeight: 1.4 }}>
-              {error}
-            </div>
-            <button
-              type="button"
-              onClick={() => setRetryCount((c) => c + 1)}
-              style={{
-                padding: "5px 12px",
-                backgroundColor: "#ffffff",
-                color: "#18181b",
-                border: "1.5px solid #18181b",
-                borderRadius: "6px",
-                fontSize: "12px",
-                fontWeight: 700,
-                cursor: "pointer",
-              }}
-            >
-              Retry
-            </button>
-          </div>
+        {activeTab === "overview" && (
+          <OverviewContent
+            repoName={repoName}
+            repoOwner={repoOwner}
+            repoUrl={repoUrl}
+            architectureData={architectureData}
+            liveRepo={liveRepo}
+            isAnalyzing={isAnalyzing}
+            analyzeError={analyzeError}
+            onRetryAnalysis={onRetryAnalysis}
+            onNavigate={onTabChange}
+          />
         )}
 
-        {loading ? (
-          <div style={{ padding: "20px 0", textAlign: "center", color: "#6b7280" }}>
-            <div style={{ fontWeight: 700, fontSize: "14px", color: "#18181b", marginBottom: "6px" }}>
-              Fetching live repository details from GitHub…
-            </div>
-            <div style={{ fontSize: "12.5px" }}>Loading structure, languages, README, and issues.</div>
-          </div>
-        ) : bundle ? (
-          <>
-            {activeTab === "overview" && (
-              <OverviewContent
-                bundle={bundle}
-                repoName={repoName}
-                repoUrl={repoUrl}
-                onNavigate={onTabChange}
-              />
-            )}
+        {activeTab === "architecture" && (
+          <ArchitectureContent
+            repoName={repoName}
+            repoOwner={repoOwner}
+            repoUrl={repoUrl}
+            architectureData={architectureData}
+            liveRepo={liveRepo}
+            isAnalyzing={isAnalyzing}
+            selectedNode={selectedArchNode}
+            onSelectNode={setSelectedArchNode}
+          />
+        )}
 
-            {activeTab === "architecture" && (
-              <ArchitectureContent
-                bundle={bundle}
-                repoName={repoName}
-                repoUrl={repoUrl}
-                selectedNodeId={selectedNodeId}
-                onSelectNodeId={setSelectedNodeId}
-              />
-            )}
+        {activeTab === "setup" && (
+          <SetupTestingContent
+            repoName={repoName}
+            repoOwner={repoOwner}
+            repoUrl={repoUrl}
+            architectureData={architectureData}
+            liveRepo={liveRepo}
+            copiedKey={copiedKey}
+            onCopy={copyToClipboard}
+          />
+        )}
 
-            {activeTab === "setup" && (
-              <SetupTestingContent
-                bundle={bundle}
-                repoName={repoName}
-                repoUrl={repoUrl}
-                copiedKey={copiedKey}
-                onCopy={copyToClipboard}
-              />
-            )}
-
-            {activeTab === "contributions" && (
-              <ContributionsContent
-                bundle={bundle}
-                repoName={repoName}
-                activeIssueId={activeIssueId}
-                onSelectIssue={setActiveIssueId}
-                checklist={checklist}
-                onToggleChecklist={(key) =>
-                  setChecklist((prev) => ({ ...prev, [key]: !prev[key as keyof typeof checklist] }))
-                }
-              />
-            )}
+        {activeTab === "contributions" && (
+          <ContributionsContent
+            repoName={repoName}
+            repoOwner={repoOwner}
+            repoUrl={repoUrl}
+            liveRepo={liveRepo}
+            activeIssue={activeIssue}
+            onSelectIssue={setActiveIssue}
+            checklist={checklist}
+            onToggleChecklist={(key) =>
+              setChecklist((prev) => ({ ...prev, [key]: !prev[key as keyof typeof checklist] }))
+            }
+            onOpenAiMentor={() => onTabChange("ai_mentor")}
+          />
+        )}
 
             {activeTab === "ai_mentor" && (
               <AiMentorContent bundle={bundle} repoName={repoName} repoOwner={repoOwner} />
@@ -512,30 +359,51 @@ export function OpenSourceExpandedView({
 function OverviewContent({
   bundle,
   repoName,
+  repoOwner,
   repoUrl,
+  architectureData,
+  liveRepo,
+  isAnalyzing,
+  analyzeError,
+  onRetryAnalysis,
   onNavigate,
 }: {
   bundle: LiveRepoBundle;
   repoName: string;
+  repoOwner: string;
   repoUrl: string;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
+  isAnalyzing: boolean;
+  analyzeError?: string | null;
+  onRetryAnalysis?: () => void;
   onNavigate: (tab: ExpandedTab) => void;
 }) {
   const summary =
-    bundle.details.description ||
-    (bundle.readmeMarkdown
-      ? bundle.readmeMarkdown
-          .split("\n")
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0 && !l.startsWith("#") && !l.startsWith("![") && !l.startsWith("<"))[0] ||
-        "No description provided for this repository."
-      : "No description provided for this repository.");
+    architectureData?.overview?.summary ||
+    liveRepo?.metadata?.description ||
+    (isAnalyzing ? "Analyzing repository facts and structure..." : `Repository ${repoOwner}/${repoName}.`);
 
-  const dirs = bundle.contents.filter((c) => c.type === "dir");
-  const files = bundle.contents.filter((c) => c.type === "file");
+  // Real technologies: prefer architecture bundle, fallback to live GitHub languages
+  const technologies: { name: string; evidence?: string }[] = [];
+  if (architectureData?.technologies && architectureData.technologies.length > 0) {
+    for (const t of architectureData.technologies) {
+      const ev = (t as any).evidence || (t.evidence_files && t.evidence_files[0]) || "";
+      technologies.push({ name: t.name, evidence: ev });
+    }
+  } else if (liveRepo?.languages && liveRepo.languages.length > 0) {
+    for (const lang of liveRepo.languages) {
+      technologies.push({ name: lang });
+    }
+  }
+
+  // Real project structure: prefer architecture components, fallback to top-level files
+  const components = architectureData?.components || [];
+  const topFiles = liveRepo?.topFiles || [];
 
   return (
     <div style={{ width: "100%", boxSizing: "border-box" }}>
-      {/* Title + Analyzed Pill */}
+      {/* Title + Status Badge */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
         <h1
           style={{
@@ -550,23 +418,61 @@ function OverviewContent({
         >
           What is {repoName}?
         </h1>
-        <div
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
-            backgroundColor: "#dcfce7",
-            border: "1px solid #86efac",
-            color: "#15803d",
-            borderRadius: "12px",
-            padding: "2px 8px",
-            fontSize: "10.5px",
-            fontWeight: 700,
-          }}
-        >
-          <span>✓</span>
-          <span>Live repository verified</span>
-        </div>
+        {architectureData ? (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              backgroundColor: "#dcfce7",
+              border: "1px solid #86efac",
+              color: "#15803d",
+              borderRadius: "12px",
+              padding: "2px 8px",
+              fontSize: "10.5px",
+              fontWeight: 700,
+            }}
+          >
+            <span>✓</span>
+            <span>Repository analyzed</span>
+          </div>
+        ) : isAnalyzing ? (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              backgroundColor: "#fef3c7",
+              border: "1px solid #fcd34d",
+              color: "#92400e",
+              borderRadius: "12px",
+              padding: "2px 8px",
+              fontSize: "10.5px",
+              fontWeight: 700,
+            }}
+          >
+            <span>●</span>
+            <span>Analyzing repository...</span>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              backgroundColor: "#f3f4f6",
+              border: "1px solid #d1d5db",
+              color: "#374151",
+              borderRadius: "12px",
+              padding: "2px 8px",
+              fontSize: "10.5px",
+              fontWeight: 700,
+            }}
+          >
+            <span>●</span>
+            <span>Live GitHub data</span>
+          </div>
+        )}
       </div>
 
       <p
@@ -595,10 +501,11 @@ function OverviewContent({
           TECHNOLOGIES DETECTED
         </h3>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {bundle.topLanguages.length > 0 ? (
-            bundle.topLanguages.map((tech) => (
+          {technologies.length > 0 ? (
+            technologies.map((tech) => (
               <span
-                key={tech}
+                key={tech.name}
+                title={tech.evidence ? `Evidence: ${tech.evidence}` : undefined}
                 style={{
                   padding: "4px 10px",
                   backgroundColor: "#ffffff",
@@ -610,11 +517,13 @@ function OverviewContent({
                   boxShadow: "1.5px 1.5px 0px #000000",
                 }}
               >
-                {tech}
+                {tech.name}
               </span>
             ))
+          ) : isAnalyzing ? (
+            <span style={{ fontSize: "12px", color: "#6b7280" }}>Detecting technologies...</span>
           ) : (
-            <span style={{ fontSize: "12px", color: "#6b7280" }}>No language statistics returned by GitHub.</span>
+            <span style={{ fontSize: "12px", color: "#6b7280" }}>No specific technologies detected</span>
           )}
         </div>
       </div>
@@ -635,76 +544,79 @@ function OverviewContent({
         </h3>
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {dirs.map((dir) => (
-            <div
-              key={dir.path}
-              style={{
-                padding: "10px 12px",
-                backgroundColor: "#ffffff",
-                border: "1.5px solid #27272a",
-                borderRadius: "8px",
-                boxShadow: "1.5px 1.5px 0px #000000",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                boxSizing: "border-box",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ color: "#f59e0b" }}><FolderIcon /></div>
-                <div style={{ fontWeight: 800, fontSize: "13px", color: "#18181b" }}>
-                  {dir.name}/
-                </div>
-              </div>
-              <a
-                href={dir.html_url}
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontSize: "11px", color: "#2563eb", textDecoration: "none", fontWeight: 600 }}
+          {components.length > 0 ? (
+            components.map((comp) => (
+              <div
+                key={comp.id}
+                style={{
+                  padding: "12px 14px",
+                  backgroundColor: "#ffffff",
+                  border: "1.5px solid #27272a",
+                  borderRadius: "8px",
+                  boxShadow: "2px 2px 0px #000000",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  boxSizing: "border-box",
+                }}
               >
-                View on GitHub ↗
-              </a>
-            </div>
-          ))}
-
-          {files.slice(0, 8).map((file) => (
-            <div
-              key={file.path}
-              style={{
-                padding: "10px 12px",
-                backgroundColor: "#ffffff",
-                border: "1.5px solid #27272a",
-                borderRadius: "8px",
-                boxShadow: "1.5px 1.5px 0px #000000",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                boxSizing: "border-box",
-              }}
-            >
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <div style={{ color: "#6b7280" }}><DocIcon /></div>
-                <div style={{ fontWeight: 600, fontSize: "12.5px", color: "#18181b" }}>
-                  {file.name}
+                <div style={{ color: "#f59e0b", marginTop: "2px" }}>
+                  <FolderIcon />
+                </div>
+                <div>
+                  <div
+                    style={{
+                      fontWeight: 800,
+                      fontSize: "13px",
+                      color: "#18181b",
+                      fontFamily: "ui-monospace, monospace",
+                      marginBottom: "2px",
+                    }}
+                  >
+                    {comp.name}/
+                  </div>
+                  <div style={{ fontSize: "11.5px", color: "#6b7280", lineHeight: 1.4 }}>
+                    {comp.description || `${comp.files?.length || 0} key files`}
+                  </div>
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                {file.size > 0 && (
-                  <span style={{ fontSize: "11px", color: "#9ca3af" }}>
-                    {(file.size / 1024).toFixed(1)} KB
-                  </span>
-                )}
-                <a
-                  href={file.html_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ fontSize: "11px", color: "#2563eb", textDecoration: "none", fontWeight: 600 }}
+            ))
+          ) : topFiles.length > 0 ? (
+            topFiles.map((file) => (
+              <div
+                key={file.path}
+                style={{
+                  padding: "10px 12px",
+                  backgroundColor: "#ffffff",
+                  border: "1.5px solid #27272a",
+                  borderRadius: "8px",
+                  boxShadow: "1.5px 1.5px 0px #000000",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  boxSizing: "border-box",
+                }}
+              >
+                <div style={{ color: file.type === "dir" ? "#f59e0b" : "#6b7280" }}>
+                  {file.type === "dir" ? <FolderIcon /> : <DocIcon />}
+                </div>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: "12.5px",
+                    color: "#18181b",
+                    fontFamily: "ui-monospace, monospace",
+                  }}
                 >
-                  View ↗
-                </a>
+                  {file.name}{file.type === "dir" ? "/" : ""}
+                </div>
               </div>
-            </div>
-          ))}
+            ))
+          ) : isAnalyzing ? (
+            <div style={{ fontSize: "12px", color: "#6b7280" }}>Fetching repository structure...</div>
+          ) : (
+            <div style={{ fontSize: "12px", color: "#6b7280" }}>Structure not available.</div>
+          )}
         </div>
       </div>
 
@@ -725,7 +637,8 @@ function OverviewContent({
             cursor: "pointer",
           }}
         >
-          Explore Architecture →
+          <ArchitectureIcon />
+          <span>Explore Architecture →</span>
         </button>
         <button
           type="button"
@@ -742,7 +655,8 @@ function OverviewContent({
             cursor: "pointer",
           }}
         >
-          Setup & Testing →
+          <GearIcon />
+          <span>View Setup Guide →</span>
         </button>
       </div>
     </div>
@@ -755,18 +669,33 @@ function OverviewContent({
 function ArchitectureContent({
   bundle,
   repoName,
+  repoOwner,
   repoUrl,
-  selectedNodeId,
-  onSelectNodeId,
+  architectureData,
+  liveRepo,
+  isAnalyzing,
+  selectedNode,
+  onSelectNode,
 }: {
   bundle: LiveRepoBundle;
   repoName: string;
+  repoOwner: string;
   repoUrl: string;
-  selectedNodeId: string | null;
-  onSelectNodeId: (nodeId: string) => void;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
+  isAnalyzing: boolean;
+  selectedNode: string;
+  onSelectNode: (nodeId: string) => void;
 }) {
-  const nodes = bundle.architectureNodes;
-  const activeNode = nodes.find((n) => n.id === selectedNodeId) || nodes[0];
+  const components = architectureData?.components || [];
+  const connections = architectureData?.connections || [];
+  const topFiles = liveRepo?.topFiles || [];
+
+  // Active selected component
+  const activeComponent =
+    components.find((c) => c.id === selectedNode || c.name === selectedNode) ||
+    components[0] ||
+    null;
 
   return (
     <div style={{ width: "100%", boxSizing: "border-box" }}>
@@ -782,10 +711,10 @@ function ArchitectureContent({
         Architecture Explorer
       </h1>
       <p style={{ margin: "0 0 16px 0", fontSize: "12.5px", color: "#4b5563", lineHeight: 1.45 }}>
-        Live component structure and modules detected in {repoName}.
+        Explore how modules connect and interact in {repoName}.
       </p>
 
-      {/* Component Diagram */}
+      {/* Modules & Pipeline Diagram */}
       <div
         style={{
           backgroundColor: "#ffffff",
@@ -807,66 +736,93 @@ function ArchitectureContent({
             letterSpacing: "0.05em",
           }}
         >
-          Detected Repository Modules ({nodes.length} Components)
+          {components.length > 0 ? "Detected Modules & Components" : "Repository Components"}
         </div>
 
-        {nodes.length > 0 ? (
+        {components.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {nodes.map((node) => {
-              const isSelected = activeNode?.id === node.id;
+            {components.map((comp) => {
+              const isSelected = activeComponent?.id === comp.id;
               return (
                 <div
-                  key={node.id}
-                  onClick={() => onSelectNodeId(node.id)}
+                  key={comp.id}
+                  onClick={() => onSelectNode(comp.id)}
                   style={{
+                    padding: "10px 12px",
+                    backgroundColor: isSelected ? "#fef3c7" : "#faf7f2",
+                    border: isSelected ? "2px solid #f59e0b" : "1.5px solid #27272a",
+                    borderRadius: "6px",
+                    boxShadow: isSelected ? "2px 2px 0px #000000" : "1px 1px 0px #000000",
+                    cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    padding: "9px 12px",
-                    backgroundColor: isSelected ? "#fef3c7" : "#ffffff",
-                    border: isSelected ? "2px solid #000000" : "1.5px solid #d1d5db",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    boxShadow: isSelected ? "2px 2px 0px #000000" : "none",
                   }}
                 >
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <div style={{ color: node.type === "directory" ? "#f59e0b" : "#6b7280" }}>
-                      {node.type === "directory" ? <FolderIcon /> : <DocIcon />}
-                    </div>
+                    <FolderIcon />
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#18181b" }}>
-                        {node.name}
+                      <div style={{ fontWeight: 800, fontSize: "13px", color: "#18181b" }}>
+                        {comp.name}/
                       </div>
                       <div style={{ fontSize: "11px", color: "#6b7280" }}>
-                        {node.description}
+                        {comp.files?.length || 0} tracked files
                       </div>
                     </div>
                   </div>
-                  <span
-                    style={{
-                      padding: "2px 6px",
-                      backgroundColor: node.type === "directory" ? "#e0f2fe" : "#f3f4f6",
-                      color: node.type === "directory" ? "#0369a1" : "#4b5563",
-                      borderRadius: "4px",
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {node.type}
-                  </span>
+                  <span style={{ fontSize: "14px", color: "#9ca3af" }}>›</span>
                 </div>
               );
             })}
           </div>
+        ) : topFiles.length > 0 ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+            {topFiles.map((file) => (
+              <span
+                key={file.path}
+                style={{
+                  padding: "4px 8px",
+                  backgroundColor: "#ffffff",
+                  border: "1.5px solid #27272a",
+                  borderRadius: "6px",
+                  fontSize: "11px",
+                  fontFamily: "ui-monospace, monospace",
+                  fontWeight: 600,
+                }}
+              >
+                {file.name}{file.type === "dir" ? "/" : ""}
+              </span>
+            ))}
+          </div>
+        ) : isAnalyzing ? (
+          <div style={{ fontSize: "12px", color: "#6b7280" }}>Analyzing architecture components...</div>
         ) : (
-          <div style={{ fontSize: "12px", color: "#6b7280" }}>No modules detected in root.</div>
+          <div style={{ fontSize: "12px", color: "#6b7280" }}>No architecture components detected.</div>
+        )}
+
+        {/* Connections overview */}
+        {connections.length > 0 && (
+          <div style={{ marginTop: "14px", borderTop: "1px dashed #e5e0d8", paddingTop: "10px" }}>
+            <div style={{ fontSize: "10px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>
+              Inter-Component Connections
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+              {connections.slice(0, 4).map((conn, idx) => {
+                const fromNode = (conn as any).from_component || conn.from || "";
+                const toNode = (conn as any).to_component || conn.to || "";
+                return (
+                  <div key={idx} style={{ fontSize: "11px", color: "#4b5563" }}>
+                    <strong>{fromNode}</strong> → <strong>{toNode}</strong>: {conn.relationship}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Selected Node Details Card */}
-      {activeNode && (
+      {/* Component Details Panel */}
+      {activeComponent && (
         <div
           style={{
             backgroundColor: "#ffffff",
@@ -877,25 +833,65 @@ function ArchitectureContent({
             boxSizing: "border-box",
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-            <h3 style={{ margin: 0, fontSize: "14px", fontWeight: 800, color: "#111827" }}>
-              {activeNode.name}
-            </h3>
-            <a
-              href={`https://github.com/${bundle.details.owner}/${bundle.details.name}/tree/${bundle.details.default_branch}/${activeNode.path}`}
-              target="_blank"
-              rel="noreferrer"
-              style={{ fontSize: "11.5px", color: "#2563eb", textDecoration: "none", fontWeight: 600 }}
-            >
-              Inspect on GitHub ↗
-            </a>
+          <div style={{ fontSize: "10.5px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>
+            COMPONENT DETAILS
           </div>
-          <p style={{ margin: "0 0 10px 0", fontSize: "12.5px", color: "#4b5563", lineHeight: 1.45 }}>
-            {activeNode.description}
+
+          <h3 style={{ margin: "0 0 4px 0", fontSize: "15px", fontWeight: 800, color: "#18181b" }}>
+            {activeComponent.name}
+          </h3>
+          <p style={{ margin: "0 0 10px 0", fontSize: "12px", color: "#4b5563", lineHeight: 1.4 }}>
+            {activeComponent.description || "Core repository module."}
           </p>
-          <div style={{ fontSize: "11.5px", color: "#6b7280" }}>
-            Path: <code style={{ backgroundColor: "#f3f4f6", padding: "2px 5px", borderRadius: "3px" }}>{activeNode.path}</code>
-          </div>
+
+          {activeComponent.files && activeComponent.files.length > 0 && (
+            <div style={{ marginBottom: "12px" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, color: "#374151", marginBottom: "4px" }}>
+                Files in this module:
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                {activeComponent.files.slice(0, 6).map((file, idx) => (
+                  <span
+                    key={idx}
+                    style={{
+                      padding: "2px 6px",
+                      backgroundColor: "#f3f4f6",
+                      borderRadius: "4px",
+                      fontSize: "10.5px",
+                      fontFamily: "ui-monospace, monospace",
+                      color: "#18181b",
+                    }}
+                  >
+                    {file}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <a
+            href={`${repoUrl}/tree/${liveRepo?.metadata.defaultBranch || "main"}/${activeComponent.name}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "6px",
+              padding: "8px 12px",
+              backgroundColor: "#faf7f2",
+              border: "1.5px solid #27272a",
+              borderRadius: "6px",
+              boxShadow: "1.5px 1.5px 0px #000000",
+              textDecoration: "none",
+              fontWeight: 700,
+              fontSize: "12px",
+              color: "#18181b",
+            }}
+          >
+            <OctocatIcon />
+            <span>View {activeComponent.name} on GitHub</span>
+          </a>
         </div>
       )}
     </div>
@@ -908,16 +904,44 @@ function ArchitectureContent({
 function SetupTestingContent({
   bundle,
   repoName,
+  repoOwner,
   repoUrl,
+  architectureData,
+  liveRepo,
   copiedKey,
   onCopy,
 }: {
   bundle: LiveRepoBundle;
   repoName: string;
+  repoOwner: string;
   repoUrl: string;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
   copiedKey: string | null;
   onCopy: (text: string, key: string) => void;
 }) {
+  const fileNames = (liveRepo?.topFiles || []).map((f) => f.name.toLowerCase());
+  const techNames = (architectureData?.technologies || []).map((t) => t.name.toLowerCase());
+
+  const hasPython =
+    fileNames.some((f) => f.endsWith(".py") || f === "requirements.txt" || f === "pyproject.toml") ||
+    techNames.includes("python");
+  const hasRust = fileNames.includes("cargo.toml") || techNames.includes("rust");
+  const hasGo = fileNames.includes("go.mod") || techNames.includes("go");
+
+  const cloneCmd = `git clone ${repoUrl}.git`;
+  const installCmd = hasPython
+    ? fileNames.includes("poetry.lock")
+      ? "poetry install"
+      : "pip install -r requirements.txt"
+    : hasRust
+    ? "cargo build"
+    : hasGo
+    ? "go mod download"
+    : "npm install";
+
+  const testCmd = hasPython ? "pytest" : hasRust ? "cargo test" : hasGo ? "go test ./..." : "npm test";
+
   return (
     <div style={{ width: "100%", boxSizing: "border-box" }}>
       <h1
@@ -931,27 +955,35 @@ function SetupTestingContent({
         Get {repoName} running
       </h1>
       <p style={{ margin: "0 0 16px 0", fontSize: "12.5px", color: "#4b5563" }}>
-        Live prerequisites, setup instructions, and test commands extracted for this repository.
+        Follow the setup guide to run and test {repoName} locally.
       </p>
 
-      {/* Prerequisites */}
-      <div
-        style={{
-          backgroundColor: "#ffffff",
-          border: "1.5px solid #27272a",
-          borderRadius: "8px",
-          padding: "12px 14px",
-          marginBottom: "16px",
-          boxShadow: "1.5px 1.5px 0px #000000",
-        }}
-      >
-        <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>
-          Prerequisites
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-          {bundle.prerequisites.map((req) => (
-            <span
-              key={req}
+      {/* Steps */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "14px", marginBottom: "20px" }}>
+        {/* Step 1: Clone */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+          <div
+            style={{
+              width: "24px",
+              height: "24px",
+              borderRadius: "50%",
+              backgroundColor: "#f79f24",
+              border: "1.5px solid #000000",
+              fontWeight: 800,
+              fontSize: "12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            1
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: "13px", color: "#18181b", marginBottom: "4px" }}>
+              Clone repository
+            </div>
+            <div
               style={{
                 padding: "3px 8px",
                 backgroundColor: "#f3f4f6",
@@ -959,21 +991,53 @@ function SetupTestingContent({
                 fontSize: "11.5px",
                 fontWeight: 600,
                 color: "#18181b",
+                overflowX: "auto",
               }}
             >
-              • {req}
-            </span>
-          ))}
+              <code>{cloneCmd}</code>
+              <button
+                type="button"
+                onClick={() => onCopy(cloneCmd, "step1")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  padding: "0 4px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                }}
+              >
+                {copiedKey === "step1" ? "✓" : <CopyIcon />}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Setup Steps */}
-      <div style={{ marginBottom: "20px" }}>
-        <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "10px" }}>
-          Installation & Setup Commands
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {bundle.setupSteps.map((cmd, idx) => (
+        {/* Step 2: Install */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+          <div
+            style={{
+              width: "24px",
+              height: "24px",
+              borderRadius: "50%",
+              backgroundColor: "#f79f24",
+              border: "1.5px solid #000000",
+              fontWeight: 800,
+              fontSize: "12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            2
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: "13px", color: "#18181b", marginBottom: "4px" }}>
+              Install dependencies
+            </div>
             <div
               key={idx}
               style={{
@@ -981,47 +1045,17 @@ function SetupTestingContent({
                 border: "1.5px solid #27272a",
                 borderRadius: "8px",
                 boxShadow: "1.5px 1.5px 0px #000000",
-                padding: "10px 12px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "8px",
+                fontFamily: "ui-monospace, monospace",
+                fontSize: "12px",
+                fontWeight: 600,
+                color: "#18181b",
+                overflowX: "auto",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: 0 }}>
-                <span
-                  style={{
-                    width: "20px",
-                    height: "20px",
-                    borderRadius: "50%",
-                    backgroundColor: "#f79f24",
-                    color: "#000000",
-                    fontWeight: 800,
-                    fontSize: "11px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    flexShrink: 0,
-                  }}
-                >
-                  {idx + 1}
-                </span>
-                <code
-                  style={{
-                    fontFamily: "ui-monospace, monospace",
-                    fontSize: "12px",
-                    color: "#18181b",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {cmd}
-                </code>
-              </div>
+              <code>{installCmd}</code>
               <button
                 type="button"
-                onClick={() => onCopy(cmd, `step-${idx}`)}
+                onClick={() => onCopy(installCmd, "step2")}
                 style={{
                   padding: "4px 8px",
                   border: "1px solid #27272a",
@@ -1037,21 +1071,36 @@ function SetupTestingContent({
                   flexShrink: 0,
                 }}
               >
-                <CopyIcon />
-                <span>{copiedKey === `step-${idx}` ? "Copied!" : "Copy"}</span>
+                {copiedKey === "step2" ? "✓" : <CopyIcon />}
               </button>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Test Commands */}
-      <div>
-        <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "10px" }}>
-          Test Suite Execution
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-          {bundle.testCommands.map((testCmd, idx) => (
+        {/* Step 3: Run Tests */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+          <div
+            style={{
+              width: "24px",
+              height: "24px",
+              borderRadius: "50%",
+              backgroundColor: "#f79f24",
+              border: "1.5px solid #000000",
+              fontWeight: 800,
+              fontSize: "12px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            3
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 800, fontSize: "13px", color: "#18181b", marginBottom: "4px" }}>
+              Run test suite
+            </div>
             <div
               key={idx}
               style={{
@@ -1059,25 +1108,17 @@ function SetupTestingContent({
                 border: "1.5px solid #27272a",
                 borderRadius: "8px",
                 boxShadow: "1.5px 1.5px 0px #000000",
-                padding: "10px 12px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: "8px",
+                fontFamily: "ui-monospace, monospace",
+                fontSize: "12px",
+                fontWeight: 600,
+                color: "#18181b",
+                overflowX: "auto",
               }}
             >
-              <code
-                style={{
-                  fontFamily: "ui-monospace, monospace",
-                  fontSize: "12px",
-                  color: "#18181b",
-                }}
-              >
-                {testCmd}
-              </code>
+              <code>{testCmd}</code>
               <button
                 type="button"
-                onClick={() => onCopy(testCmd, `test-${idx}`)}
+                onClick={() => onCopy(testCmd, "step3")}
                 style={{
                   padding: "4px 8px",
                   border: "1px solid #27272a",
@@ -1092,12 +1133,22 @@ function SetupTestingContent({
                   gap: "4px",
                 }}
               >
-                <CopyIcon />
-                <span>{copiedKey === `test-${idx}` ? "Copied!" : "Copy"}</span>
+                {copiedKey === "step3" ? "✓" : <CopyIcon />}
               </button>
             </div>
-          ))}
+          </div>
         </div>
+      </div>
+
+      <div style={{ textAlign: "right", marginTop: "16px" }}>
+        <a
+          href={`${repoUrl}#readme`}
+          target="_blank"
+          rel="noreferrer"
+          style={{ fontSize: "12px", fontWeight: 700, color: "#2563eb", textDecoration: "none" }}
+        >
+          Open full README on GitHub ↗
+        </a>
       </div>
     </div>
   );
@@ -1109,20 +1160,28 @@ function SetupTestingContent({
 function ContributionsContent({
   bundle,
   repoName,
-  activeIssueId,
+  repoOwner,
+  repoUrl,
+  liveRepo,
+  activeIssue,
   onSelectIssue,
   checklist,
   onToggleChecklist,
+  onOpenAiMentor,
 }: {
   bundle: LiveRepoBundle;
   repoName: string;
-  activeIssueId: number | null;
-  onSelectIssue: (issueNum: number) => void;
+  repoOwner: string;
+  repoUrl: string;
+  liveRepo?: LiveRepoSnapshot | null;
+  activeIssue: number | null;
+  onSelectIssue: (issue: number) => void;
   checklist: { context: boolean; files: boolean; tests: boolean; pr: boolean };
   onToggleChecklist: (key: string) => void;
+  onOpenAiMentor: () => void;
 }) {
-  const issues = bundle.issues;
-  const activeIssue = issues.find((i) => i.number === activeIssueId) || issues[0];
+  const issues = liveRepo?.openIssues || [];
+  const selected = issues.find((i) => i.number === activeIssue) || issues[0] || null;
 
   return (
     <div style={{ width: "100%", boxSizing: "border-box" }}>
@@ -1137,22 +1196,22 @@ function ContributionsContent({
         Contribution Assistant
       </h1>
       <p style={{ margin: "0 0 16px 0", fontSize: "12.5px", color: "#4b5563" }}>
-        Live open issues fetched directly from GitHub for {repoName}.
+        Find real open issues on GitHub and prepare your contribution plan.
       </p>
 
       {/* Issues list */}
       <div style={{ marginBottom: "18px" }}>
         <div style={{ fontSize: "10.5px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: "8px" }}>
-          OPEN ISSUES ({issues.length} Found)
+          LIVE OPEN ISSUES
         </div>
 
         {issues.length > 0 ? (
           <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
             {issues.map((issue) => {
-              const isSelected = activeIssue?.number === issue.number;
+              const isSelected = (selected?.number || activeIssue) === issue.number;
               return (
                 <div
-                  key={issue.id}
+                  key={issue.number}
                   onClick={() => onSelectIssue(issue.number)}
                   style={{
                     padding: "10px 12px",
@@ -1168,11 +1227,7 @@ function ContributionsContent({
                     <span style={{ fontFamily: "ui-monospace, monospace", fontWeight: 800, fontSize: "12px" }}>
                       #{issue.number}
                     </span>
-                    <a
-                      href={issue.html_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={(e) => e.stopPropagation()}
+                    <span
                       style={{
                         padding: "2px 6px",
                         backgroundColor: "#dcfce7",
@@ -1180,35 +1235,23 @@ function ContributionsContent({
                         borderRadius: "10px",
                         fontSize: "10px",
                         fontWeight: 700,
-                        textDecoration: "none",
                       }}
                     >
-                      ● Open on GitHub ↗
-                    </a>
+                      ● Open
+                    </span>
                   </div>
                   <div style={{ fontWeight: 700, fontSize: "12.5px", color: "#18181b", marginBottom: "4px" }}>
                     {issue.title}
                   </div>
-                  {issue.labels.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                      {issue.labels.map((lbl, idx) => (
-                        <span
-                          key={idx}
-                          style={{
-                            padding: "1px 6px",
-                            backgroundColor: lbl.color ? `#${lbl.color}20` : "#f3f4f6",
-                            border: `1px solid ${lbl.color ? `#${lbl.color}` : "#d1d5db"}`,
-                            borderRadius: "10px",
-                            fontSize: "10px",
-                            color: "#18181b",
-                            fontWeight: 600,
-                          }}
-                        >
-                          {lbl.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  <a
+                    href={issue.html_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ fontSize: "11px", color: "#2563eb", textDecoration: "underline" }}
+                  >
+                    View issue on GitHub ↗
+                  </a>
                 </div>
               );
             })}
@@ -1220,11 +1263,21 @@ function ContributionsContent({
               backgroundColor: "#ffffff",
               border: "1.5px solid #27272a",
               borderRadius: "8px",
-              fontSize: "12.5px",
+              fontSize: "12px",
               color: "#6b7280",
             }}
           >
-            No open issues currently found on GitHub for this repository.
+            No open issues currently reported, or fetching from GitHub.
+            <div style={{ marginTop: "6px" }}>
+              <a
+                href={`${repoUrl}/issues`}
+                target="_blank"
+                rel="noreferrer"
+                style={{ color: "#2563eb", fontWeight: 700, textDecoration: "underline" }}
+              >
+                Browse all issues on GitHub ↗
+              </a>
+            </div>
           </div>
         )}
       </div>
@@ -1242,40 +1295,46 @@ function ContributionsContent({
         <div style={{ fontWeight: 800, fontSize: "13px", color: "#18181b", marginBottom: "8px" }}>
           Contribution Checklist {activeIssue ? `for #${activeIssue.number}` : ""}
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          {[
-            { key: "context", text: "Read issue description and comments on GitHub" },
-            { key: "files", text: "Locate relevant source files and tests in the repository" },
-            { key: "tests", text: "Run automated tests locally and verify passing suite" },
-            { key: "pr", text: "Create feature branch and open Pull Request" },
-          ].map((item) => {
-            const isChecked = checklist[item.key as keyof typeof checklist];
-            return (
-              <label
-                key={item.key}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  fontSize: "12px",
-                  color: "#374151",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  onChange={() => onToggleChecklist(item.key)}
-                  style={{ cursor: "pointer" }}
-                />
-                <span style={{ textDecoration: isChecked ? "line-through" : "none" }}>
-                  {item.text}
-                </span>
-              </label>
-            );
-          })}
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12px" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+            <input type="checkbox" checked={checklist.context} onChange={() => onToggleChecklist("context")} />
+            <span>Read issue details and understand context</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+            <input type="checkbox" checked={checklist.files} onChange={() => onToggleChecklist("files")} />
+            <span>Explore relevant codebase files</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+            <input type="checkbox" checked={checklist.tests} onChange={() => onToggleChecklist("tests")} />
+            <span>Run tests locally</span>
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" }}>
+            <input type="checkbox" checked={checklist.pr} onChange={() => onToggleChecklist("pr")} />
+            <span>Prepare and submit PR</span>
+          </label>
         </div>
       </div>
+
+      {/* CTA Button */}
+      <button
+        type="button"
+        onClick={onOpenAiMentor}
+        style={{
+          width: "100%",
+          padding: "12px",
+          backgroundColor: "#f79f24",
+          border: "2px solid #000000",
+          borderRadius: "8px",
+          boxShadow: "2.5px 2.5px 0px #000000",
+          fontWeight: 800,
+          fontSize: "13px",
+          color: "#18181b",
+          cursor: "pointer",
+          boxSizing: "border-box",
+        }}
+      >
+        Ask AI Mentor about contributing →
+      </button>
     </div>
   );
 }
@@ -1298,17 +1357,17 @@ function AiMentorContent({
     {
       id: "welcome",
       sender: "ai",
-      text: `Hello! I'm your DevMinds mentor for ${repoOwner}/${repoName}. I have examined the live repository files, languages (${bundle.topLanguages.join(", ")}), and setup instructions. What would you like to understand?`,
-      sources: bundle.contents.slice(0, 3).map((c) => c.name),
+      text: `Hello! I am your DevMinds AI Mentor for ${repoName}. Ask me anything about this repository's structure, files, setup, or contribution guidelines.`,
+      sources: [],
     },
   ]);
   const [inputVal, setInputVal] = useState("");
   const [isTyping, setIsTyping] = useState(false);
 
   const suggestions = [
-    `What technologies power ${repoName}?`,
-    `Where are the main entry points or source files?`,
-    `How do I run and test this project?`,
+    `Explain the overall architecture of ${repoName}.`,
+    `Which key files and entry points should I inspect first?`,
+    `How do I run tests and set up this codebase locally?`,
   ];
 
   const handleSend = async (textToSend?: string) => {
@@ -1325,161 +1384,175 @@ function AiMentorContent({
     setIsTyping(true);
 
     try {
-      // First attempt real backend AI chat
-      const chatRes = await postChat(repoOwner, repoName, text);
-      const aiMsg = {
+      const res = await postChat(repoOwner, repoName, text);
+      const sourcesList = (res.sources || []).map((s) => s.title || s.url || String(s));
+      const aiMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        sender: "ai" as const,
-        text: chatRes.answer,
-        sources: chatRes.sources.map((s) => s.title),
+        sender: "ai",
+        text: res.answer || (res.error ? res.error.message : "I could not find an answer in the repository context."),
+        sources: sourcesList,
       };
       setMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      // Offline fallback: Answer strictly grounded in live repository bundle
-      let answer = `Regarding ${repoName}: the project is built primarily using ${bundle.topLanguages.join(", ") || "the files in the repository"}.`;
-      let sources = bundle.contents.slice(0, 2).map((c) => c.name);
-
-      const textLower = text.toLowerCase();
-      if (textLower.includes("tech") || textLower.includes("language") || textLower.includes("stack")) {
-        answer = `Based on live GitHub data, ${repoName} is developed in: ${Object.entries(bundle.languages)
-          .map(([lang, bytes]) => `${lang} (${Math.round(bytes / 1024)} KB)`)
-          .join(", ") || bundle.topLanguages.join(", ")}.`;
-        sources = bundle.contents.filter((c) => c.type === "file").slice(0, 3).map((c) => c.name);
-      } else if (textLower.includes("run") || textLower.includes("setup") || textLower.includes("test")) {
-        answer = `To get started with ${repoName}, the detected setup steps are:\n${bundle.setupSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\nTo run tests:\n${bundle.testCommands.join("\n")}`;
-        sources = ["README.md"];
-      } else if (textLower.includes("entry") || textLower.includes("source") || textLower.includes("where") || textLower.includes("file")) {
-        const keyDirs = bundle.contents.filter((c) => c.type === "dir").map((c) => c.name);
-        const keyFiles = bundle.contents.filter((c) => c.type === "file").map((c) => c.name);
-        answer = `The root directory of ${repoName} contains directories: [${keyDirs.join(", ")}] and key files: [${keyFiles.slice(0, 6).join(", ")}]. Check the main directories for application logic.`;
-        sources = keyFiles.slice(0, 3);
-      }
-
-      const aiMsg = {
+    } catch (err: any) {
+      const errorMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        sender: "ai" as const,
-        text: answer,
-        sources,
+        sender: "ai",
+        text: err?.message
+          ? `AI Mentor: ${err.message}`
+          : "Unable to reach the AI chat backend. Make sure the backend server is running.",
+        sources: [],
       };
-      setMessages((prev) => [...prev, aiMsg]);
+      setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsTyping(false);
     }
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: "450px" }}>
-      <h1 style={{ margin: "0 0 4px 0", fontSize: "19px", fontWeight: 800, color: "#111827" }}>
-        AI Mentor — {repoName}
-      </h1>
-      <p style={{ margin: "0 0 14px 0", fontSize: "12.5px", color: "#4b5563" }}>
-        Ask any questions grounded in the live repository structure and README.
-      </p>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: "450px",
+        boxSizing: "border-box",
+      }}
+    >
+      <div style={{ marginBottom: "12px" }}>
+        <h1 style={{ margin: "0 0 4px 0", fontSize: "19px", fontWeight: 800, color: "#111827" }}>
+          AI Mentor
+        </h1>
+        <p style={{ margin: 0, fontSize: "12px", color: "#6b7280" }}>
+          Ask questions grounded in {repoName}'s real source code and files.
+        </p>
+      </div>
 
-      {/* Suggested question chips */}
+      {/* Suggested chips */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "14px" }}>
-        {suggestions.map((chip, idx) => (
+        {suggestions.map((sug, i) => (
           <button
-            key={idx}
+            key={i}
             type="button"
-            onClick={() => handleSend(chip)}
+            onClick={() => void handleSend(sug)}
             style={{
-              padding: "5px 10px",
+              padding: "5px 9px",
               backgroundColor: "#ffffff",
               border: "1.5px solid #27272a",
-              borderRadius: "16px",
+              borderRadius: "14px",
               fontSize: "11px",
               fontWeight: 600,
               color: "#18181b",
+              boxShadow: "1px 1px 0px #000000",
               cursor: "pointer",
-              boxShadow: "1.5px 1.5px 0px #000000",
+              textAlign: "left",
             }}
           >
-            {chip}
+            {sug}
           </button>
         ))}
       </div>
 
-      {/* Messages */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "10px", marginBottom: "16px" }}>
+      {/* Chat Messages */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
+          paddingRight: "4px",
+          marginBottom: "14px",
+        }}
+      >
         {messages.map((msg) => (
           <div
             key={msg.id}
             style={{
               alignSelf: msg.sender === "user" ? "flex-end" : "flex-start",
-              maxWidth: "85%",
+              maxWidth: "88%",
+              padding: "10px 12px",
               backgroundColor: msg.sender === "user" ? "#fef3c7" : "#ffffff",
               border: "1.5px solid #27272a",
-              borderRadius: "10px",
-              boxShadow: "2px 2px 0px #000000",
-              padding: "10px 12px",
+              borderRadius: "8px",
+              boxShadow: "1.5px 1.5px 0px #000000",
+              fontSize: "12.5px",
+              lineHeight: 1.45,
             }}
           >
-            <div style={{ fontSize: "12.5px", color: "#18181b", lineHeight: 1.45, whiteSpace: "pre-line" }}>
-              {msg.text}
-            </div>
+            <div style={{ whiteSpace: "pre-wrap" }}>{msg.text}</div>
             {msg.sources && msg.sources.length > 0 && (
-              <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
-                {msg.sources.map((s, idx) => (
-                  <span
-                    key={idx}
-                    style={{
-                      fontSize: "10px",
-                      backgroundColor: "#f3f4f6",
-                      padding: "1px 5px",
-                      borderRadius: "3px",
-                      border: "1px solid #d1d5db",
-                    }}
-                  >
-                    📄 {s}
-                  </span>
-                ))}
+              <div
+                style={{
+                  marginTop: "8px",
+                  paddingTop: "6px",
+                  borderTop: "1px dashed #d1c7b7",
+                  fontSize: "10.5px",
+                  color: "#6b7280",
+                }}
+              >
+                <strong>Sources:</strong> {msg.sources.join(", ")}
               </div>
             )}
           </div>
         ))}
         {isTyping && (
-          <div style={{ fontSize: "12px", color: "#6b7280", fontStyle: "italic" }}>
-            AI Mentor is typing…
+          <div
+            style={{
+              alignSelf: "flex-start",
+              padding: "8px 12px",
+              backgroundColor: "#ffffff",
+              border: "1.5px solid #27272a",
+              borderRadius: "8px",
+              fontSize: "12px",
+              color: "#6b7280",
+              fontStyle: "italic",
+            }}
+          >
+            AI Mentor is thinking...
           </div>
         )}
       </div>
 
-      {/* Input */}
-      <div style={{ display: "flex", gap: "6px" }}>
+      {/* Prompt Input */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSend();
+        }}
+        style={{ display: "flex", gap: "6px" }}
+      >
         <input
           type="text"
           value={inputVal}
           onChange={(e) => setInputVal(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSend();
-          }}
-          placeholder={`Ask anything about ${repoName}…`}
+          placeholder={`Ask about ${repoName}...`}
           style={{
             flex: 1,
-            padding: "8px 12px",
+            padding: "9px 12px",
             border: "1.5px solid #27272a",
             borderRadius: "6px",
             fontSize: "12.5px",
+            outline: "none",
+            backgroundColor: "#ffffff",
           }}
         />
         <button
-          type="button"
-          onClick={() => handleSend()}
+          type="submit"
+          disabled={!inputVal.trim() || isTyping}
           style={{
-            padding: "8px 14px",
-            backgroundColor: "#f79f24",
-            border: "2px solid #000000",
+            padding: "9px 14px",
+            backgroundColor: inputVal.trim() ? "#f79f24" : "#e5e7eb",
+            color: inputVal.trim() ? "#000000" : "#9ca3af",
+            border: "1.5px solid #000000",
             borderRadius: "6px",
-            boxShadow: "2px 2px 0px #000000",
             fontWeight: 800,
-            fontSize: "12.5px",
-            cursor: "pointer",
+            fontSize: "12px",
+            cursor: inputVal.trim() ? "pointer" : "default",
           }}
         >
           Send
         </button>
-      </div>
+      </form>
     </div>
   );
 }

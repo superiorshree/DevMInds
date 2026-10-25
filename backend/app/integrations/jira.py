@@ -189,9 +189,14 @@ class JiraConnector(BaseConnector):
 
 def _credentials() -> tuple[str, str, str] | None:
     """Return (base_url, email, token), or None when any of the three is empty."""
-    base_url = settings.jira_base_url.strip()
-    email = settings.jira_email.strip()
-    token = settings.jira_api_token.strip()
+    try:
+        from app.core.config import get_settings
+        current_settings = get_settings()
+    except Exception:
+        current_settings = settings
+    base_url = str(getattr(current_settings, "jira_base_url", "") or "").strip()
+    email = str(getattr(current_settings, "jira_email", "") or "").strip()
+    token = str(getattr(current_settings, "jira_api_token", "") or "").strip()
     if not base_url or not email or not token:
         return None
     return base_url.rstrip("/"), email, token

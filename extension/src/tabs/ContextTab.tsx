@@ -12,7 +12,7 @@ import { SourceCard } from "../components/SourceCard";
 
 /** Props for the context tab. */
 export interface ContextTabProps {
-  context: RelatedContext;
+  context?: RelatedContext | null;
 }
 
 /**
@@ -21,6 +21,13 @@ export interface ContextTabProps {
  * with require_feature("contextTab") and returns 403 otherwise.
  */
 export function ContextTab({ context }: ContextTabProps) {
+  if (!context) {
+    return (
+      <section className="context-tab" style={{ padding: "16px 0", color: "#6b7280", fontSize: "13px" }}>
+        No linked company Jira or Confluence context detected.
+      </section>
+    );
+  }
   return (
     <section className="context-tab">
       <h3 style={{ fontSize: "var(--font-size-md)" }}>Jira issues</h3>

@@ -17,12 +17,17 @@
 import { useState } from "react";
 import type { SessionUser } from "../services/api";
 import type { RepoRef } from "../services/repoDetector";
+import type { ArchitectureBundle } from "../types/architecture";
+import type { LiveRepoSnapshot } from "../services/githubApi";
 import { CompanyOnboardingStepDetailView } from "./CompanyOnboardingStepDetailView";
 import { OpenSourceAiMentorChat } from "./OpenSourceAiMentorChat";
 
 export interface CompanyOnboardingRoadmapViewProps {
   repo: RepoRef;
   user: SessionUser | null;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
+  companyContext?: { items: any[]; errors: any[] } | null;
   onExploreStep?: (stepNumber: number) => void;
   onOpenAiMentor?: () => void;
   onSignOut?: () => void;
@@ -161,6 +166,9 @@ function SparkleIcon() {
 export function CompanyOnboardingRoadmapView({
   repo,
   user,
+  architectureData,
+  liveRepo,
+  companyContext,
   onExploreStep,
   onOpenAiMentor,
   onSignOut,
@@ -206,6 +214,9 @@ export function CompanyOnboardingRoadmapView({
         step={selectedStepDetail}
         repo={repo}
         user={user}
+        architectureData={architectureData}
+        liveRepo={liveRepo}
+        companyContext={companyContext}
         completedSteps={completedSteps}
         onToggleComplete={toggleComplete}
         onNavigateStep={(nextStep) => {
@@ -564,7 +575,7 @@ export function CompanyOnboardingRoadmapView({
             }}
             actionLabel="Explore Repository Overview →"
             actionPrimary={true}
-            tagsText={`${repoOwner}/${repoName} | Python | FastAPI + PostgreSQL`}
+            tagsText={`${repoOwner}/${repoName} | ${liveRepo?.metadata?.primaryLanguage || architectureData?.overview?.primary_language || (architectureData?.technologies?.[0]?.name) || "Repository"} | ${architectureData?.technologies?.map(t => t.name).slice(0, 2).join(" + ") || "Git"}`}
           />
 
           {/* Step 02 */}

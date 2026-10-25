@@ -2,7 +2,7 @@
 # Owner:       Shreyansh
 # Purpose:     Creates the FastAPI app, configures CORS, registers every router, and exposes the /health endpoint.
 # Contains:    FastAPI app instance, CORS middleware, router registration, health() route.
-# Status:      STUB, replace TODOs with real implementation
+# Status:      REAL — registers auth, modes, repositories, integrations, chat, ai, and company routers.
 # Depends on:  backend/app/core/config.py, backend/app/api/* routers
 
 """DevMinds backend entrypoint.
@@ -14,7 +14,7 @@ Then check:        GET http://localhost:8000/health  ->  {"status": "ok", ...}
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, chat, integrations, modes, repositories
+from app.api import ai, auth, chat, company, integrations, modes, repositories
 from app.core.config import get_settings
 from app.schemas.common import HealthResponse
 
@@ -41,6 +41,8 @@ app.include_router(modes.router)
 app.include_router(repositories.router)
 app.include_router(integrations.router)
 app.include_router(chat.router)
+app.include_router(ai.router)
+app.include_router(company.router)
 
 
 @app.get("/health", response_model=HealthResponse, tags=["health"])

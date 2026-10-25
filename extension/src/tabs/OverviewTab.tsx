@@ -1,11 +1,10 @@
 /**
  * File:        extension/src/tabs/OverviewTab.tsx
  * Owner:       Shreyansh
- * Purpose:     Renders the repository overview card with real analysis results, loading skeletons, empty states, and error handling.
- * Contains:    OverviewTabProps interface, helper components (OverviewSkeleton, StatusChip), and OverviewTab functional component.
- * Status:      REAL — displays real analysis data, loading/empty/error states, wired to onAnalyze callback with SourceCard evidence links.
- * Depends on:  extension/src/types/architecture.ts (ArchitectureBundle), extension/src/components/SourceCard.tsx,
- *              extension/src/styles/tokens.css
+ * Purpose:     Renders the plain-English overview of the repository (summary, language, stars, topics).
+ * Contains:    OverviewTab functional component with an OverviewTabProps interface.
+ * Status:      REAL — connected to Architecture Agent results with loading, empty, and error states.
+ * Depends on:  extension/src/types/architecture.ts (Overview)
  */
 
 import type { ArchitectureBundle } from "../types/architecture";
@@ -14,31 +13,91 @@ import type { SourceLabel } from "../components/SourceCard";
 
 /** Props for the overview tab. */
 export interface OverviewTabProps {
-  /** Analysis result from the backend, or null if not yet analyzed. */
-  analysis: ArchitectureBundle | null;
-  /** Loading state while analysis is in progress. */
-  loading: boolean;
-  /** Error message, or null if no error. */
-  error: string | null;
-  /** Callback to trigger repository analysis. */
-  onAnalyze: () => void;
+  overview?: Overview | null;
+  isLoading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }
 
-/** Local status chip helper matching tokens.css classes. */
-function StatusChip({ label }: { label: SourceLabel }) {
-  const classSuffix =
-    label === "Detected"
-      ? "detected"
-      : label === "Inferred"
-      ? "inferred"
-      : "not-found";
+/** Shows what the repo is, in one paragraph, plus a few key facts. */
+export function OverviewTab({ overview, isLoading = false, error = null, onRetry }: OverviewTabProps) {
+  if (isLoading) {
+    return (
+      <section className="overview-tab" style={{ padding: "20px 0", textAlign: "center" }}>
+        <div
+          style={{
+            display: "inline-block",
+            width: "28px",
+            height: "28px",
+            border: "3px solid #e5e0d8",
+            borderTop: "3px solid #f97316",
+            borderRadius: "50%",
+            animation: "spin 1s linear infinite",
+          }}
+        />
+        <p style={{ marginTop: "12px", color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+          Analyzing repository with AI Architecture Agent…
+        </p>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section
+        className="overview-tab"
+        style={{
+          padding: "14px",
+          backgroundColor: "#fef2f2",
+          border: "1.5px solid #f87171",
+          borderRadius: "8px",
+          marginTop: "8px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+          <span style={{ color: "#dc2626", fontWeight: 700 }}>✕</span>
+          <span style={{ color: "#991b1b", fontWeight: 700, fontSize: "var(--font-size-sm)" }}>
+            Analysis Error
+          </span>
+        </div>
+        <p style={{ margin: "0 0 10px 0", color: "#7f1d1d", fontSize: "var(--font-size-xs)", lineHeight: 1.45 }}>
+          {error}
+        </p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            style={{
+              padding: "6px 12px",
+              background: "#dc2626",
+              color: "#ffffff",
+              border: "none",
+              borderRadius: "4px",
+              cursor: "pointer",
+              fontSize: "var(--font-size-xs)",
+              fontWeight: 700,
+            }}
+          >
+            Retry Analysis
+          </button>
+        )}
+      </section>
+    );
+  }
+
+  if (!overview || !overview.summary) {
+    return (
+      <section className="overview-tab" style={{ padding: "16px 0", color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)" }}>
+        <p style={{ margin: 0 }}>No overview summary available for this repository yet.</p>
+      </section>
+    );
+  }
 
   return (
-    <span className={`source-card__chip source-card__chip--${classSuffix}`}>
-      {label}
-    </span>
-  );
-}
+    <section className="overview-tab">
+      <p style={{ marginTop: 0, lineHeight: 1.55, fontSize: "var(--font-size-sm)", color: "#1f2937" }}>
+        {overview.summary}
+      </p>
 
 /** Skeleton placeholder shown while analysis is in flight. */
 function OverviewSkeleton() {
@@ -63,69 +122,26 @@ function OverviewSkeleton() {
           display: "flex",
           flexDirection: "column",
           gap: "var(--space-2)",
+          color: "var(--color-text-muted)",
+          fontSize: "var(--font-size-sm)",
+          marginTop: "12px",
         }}
       >
-        <div
-          style={{
-            height: "18px",
-            width: "55%",
-            backgroundColor: "var(--color-bg-subtle)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        />
-        <div
-          style={{
-            height: "13px",
-            width: "85%",
-            backgroundColor: "var(--color-bg-subtle)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        />
-        <div
-          style={{
-            height: "13px",
-            width: "65%",
-            backgroundColor: "var(--color-bg-subtle)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        />
-      </div>
-
-      <div
-        style={{
-          padding: "var(--space-4)",
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-md)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-        }}
-      >
-        <div
-          style={{
-            height: "14px",
-            width: "35%",
-            backgroundColor: "var(--color-bg-subtle)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        />
-        <div
-          style={{
-            height: "44px",
-            width: "100%",
-            backgroundColor: "var(--color-bg-subtle)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        />
-        <div
-          style={{
-            height: "44px",
-            width: "100%",
-            backgroundColor: "var(--color-bg-subtle)",
-            borderRadius: "var(--radius-sm)",
-          }}
-        />
+        {overview.primary_language && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+            <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#f97316" }} />
+            {overview.primary_language}
+          </span>
+        )}
+        {typeof overview.stars === "number" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+            {overview.stars.toLocaleString()}
+          </span>
+        )}
+        {overview.last_updated && <span>Updated: {overview.last_updated.slice(0, 10)}</span>}
       </div>
     </div>
   );
@@ -343,64 +359,18 @@ export function OverviewTab({
     );
   }
 
-  // 4. Real data state
-  const { repository, overview, technologies, entry_points, components } = analysis;
-  const owner = repository?.owner || "";
-  const name = repository?.name || "";
-  const branch = repository?.branch || "main";
-
-  // Check if AI explanation is unavailable: still show the verified facts
-  const summaryText = overview?.summary || "";
-  const isAiUnavailable =
-    !summaryText ||
-    summaryText.includes("PRIVATE_AI_UNAVAILABLE") ||
-    summaryText.includes("AI_DISABLED") ||
-    summaryText.includes("AI unavailable") ||
-    summaryText.includes("EXTERNAL_AI_NOT_ALLOWED");
-
-  const repoDescription =
-    (repository as { description?: string })?.description ||
-    (isAiUnavailable ? "" : summaryText);
-
-  return (
-    <section
-      className="overview-tab"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--space-4)",
-        width: "100%",
-      }}
-    >
-      {/* Repository Card: Owner, Name, Branch, Description */}
-      <div
-        style={{
-          padding: "var(--space-3)",
-          background: "var(--color-surface)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-md)",
-          boxShadow: "var(--shadow-sm)",
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            flexWrap: "wrap",
-            gap: "var(--space-2)",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
-            <h2
+      {overview.topics && overview.topics.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--space-2)", marginTop: "var(--space-3)" }}>
+          {overview.topics.map((topic) => (
+            <span
+              key={topic}
               style={{
-                margin: 0,
-                fontSize: "var(--font-size-md)",
-                fontWeight: 800,
-                color: "var(--color-text)",
+                background: "var(--color-bg-subtle)",
+                borderRadius: "var(--radius-sm)",
+                padding: "2px 8px",
+                fontSize: "var(--font-size-xs)",
+                fontWeight: 600,
+                color: "#4b5563",
               }}
             >
               {owner} / {name}
@@ -632,80 +602,7 @@ export function OverviewTab({
           </h3>
           <StatusChip label={entry_points?.length > 0 ? "Detected" : "Not found"} />
         </div>
-
-        {entry_points?.length > 0 ? (
-          entry_points.map((ep) => (
-            <SourceCard
-              key={ep.file}
-              title={ep.file}
-              description={ep.reason}
-              url={`https://github.com/${owner}/${name}/blob/${branch}/${ep.file}`}
-              sourceType="github"
-              label="Detected"
-            />
-          ))
-        ) : (
-          <SourceCard
-            title="No entry points detected"
-            description="No conventional main entry point file was detected."
-            url={`https://github.com/${owner}/${name}`}
-            sourceType="github"
-            label="Not found"
-          />
-        )}
-      </div>
-
-      {/* Key Folders (components with file counts) */}
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: "var(--font-size-sm)",
-              fontWeight: 700,
-              textTransform: "uppercase",
-              letterSpacing: "0.05em",
-              color: "var(--color-text-muted)",
-            }}
-          >
-            Key Folders
-          </h3>
-          <StatusChip label={components?.length > 0 ? "Inferred" : "Not found"} />
-        </div>
-
-        {components?.length > 0 ? (
-          components.map((comp) => {
-            const count = comp.files?.length ?? 0;
-            const countStr = `${count} ${count === 1 ? "file" : "files"}`;
-            const folderUrl = `https://github.com/${owner}/${name}/tree/${branch}/${comp.name}`;
-
-            return (
-              <SourceCard
-                key={comp.id || comp.name}
-                title={`${comp.name} (${countStr})`}
-                description={comp.description}
-                url={folderUrl}
-                sourceType="github"
-                label="Inferred"
-              />
-            );
-          })
-        ) : (
-          <SourceCard
-            title="No key folders identified"
-            description="No component folders were mapped for this repository."
-            url={`https://github.com/${owner}/${name}`}
-            sourceType="github"
-            label="Not found"
-          />
-        )}
-      </div>
+      )}
     </section>
   );
 }
