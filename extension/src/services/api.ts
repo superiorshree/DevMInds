@@ -230,6 +230,16 @@ export function getArchitecture(owner: string, name: string): Promise<Architectu
   return request<ArchitectureBundle>(`/api/repositories/${owner}/${name}/architecture`);
 }
 
+/** Complete repository analysis by initiating analysis and fetching the architecture bundle. */
+export async function analyzeRepository(owner: string, name: string, branch = "main"): Promise<ArchitectureBundle> {
+  try {
+    await analyze(owner, name, branch);
+  } catch (err) {
+    console.warn("Analyze POST returned error, falling back to direct GET architecture:", err);
+  }
+  return getArchitecture(owner, name);
+}
+
 /** Fetch Jira + Confluence context (company mode only; 403 in contributor mode). */
 export function getContext(owner: string, name: string): Promise<unknown> {
   return request<unknown>(`/api/repositories/${owner}/${name}/context`);
@@ -239,7 +249,7 @@ export function getContext(owner: string, name: string): Promise<unknown> {
 export function postChat(owner: string, name: string, question: string): Promise<ChatResponse> {
   return request<ChatResponse>("/api/chat", {
     method: "POST",
-    body: JSON.stringify({ owner, name, question }),
+    body: JSON.stringify({ owner, name, repo: name, question }),
   });
 }
 
@@ -254,4 +264,4 @@ export function shareToSlack(owner: string, name: string, channel: string): Prom
     method: "POST",
     body: JSON.stringify({ owner, name, channel }),
   });
-}
+}

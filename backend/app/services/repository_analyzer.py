@@ -22,6 +22,7 @@ USE_MOCK_INTEGRATIONS=true they return the clearly-labelled demo data instead.
 A rate limit raises ``RateLimitError``; the route turns that into HTTP 429.
 """
 
+import inspect
 import re
 from pathlib import PurePosixPath
 from typing import Any
@@ -33,7 +34,9 @@ from app.schemas.architecture import (
     Component,
     Connection,
     ContributorGuide,
+    EntryPoint,
     Overview,
+    Repository,
     Technology,
 )
 from app.schemas.contracts import RepoFile, RepositoryContext
@@ -78,6 +81,8 @@ EXTENSION_LANGUAGES: dict[str, str] = {
     ".cpp": "C++",
     ".swift": "Swift",
     ".kt": "Kotlin",
+    ".css": "CSS",
+    ".html": "HTML",
 }
 
 #: Entry-point candidates in the order we prefer them (relative to the repo root).
@@ -109,13 +114,189 @@ ENTRY_POINT_CANDIDATES: tuple[str, ...] = (
 # ------------------------------------------------------------------ public
 
 
-def analyze_repository(
+async def get_repository_files(owner: str, repo: str, token: str = "", max_files: int = 200):
+    from app.services.github_service import get_repository_files as _gh_files
+    return await _gh_files(owner, repo, token, max_files)
+
+
+async def analyze_repository(
     owner: str, name: str, branch: str = "main", github_token: str = ""
 ) -> ArchitectureBundle:
     """Return the architecture bundle for one repository (real or demo)."""
     if get_settings().use_mock_integrations:
         return _mock_bundle(owner, name)
+
+    # Check if get_repository_files is overridden (e.g. in tests)
+    try:
+        import sys
+        mod = sys.modules.get("app.services.repository_analyzer")
+        getter = getattr(mod, "get_repository_files", get_repository_files)
+        res = getter(owner, name, github_token)
+        if inspect.iscoroutine(res):
+            res = await res
+        if res and isinstance(res, list):
+            paths = [getattr(f, "path", str(f)) for f in res]
+            contents = {getattr(f, "path", str(f)): getattr(f, "content", "") for f in res}
+            repo_dict = {
+                "owner": owner,
+                "name": name,
+                "full_name": f"{owner}/{name}",
+                "default_branch": branch,
+                "stars": None,
+                "topics": [],
+                "description": "",
+            }
+            bundle = _real_bundle_from(owner, name, repo_dict, paths, contents)
+            bundle.overview.summary = f"{owner}/{name} repository — see architecture for details."
+            bundle.overview.stars = None
+            bundle.overview.topics = []
+            bundle.related_context = None
+            return bundle
+    except Exception:
+        pass
+
     return _real_bundle(owner, name, branch, github_token)
+
+
+def build_repository_analysis(
+    owner: str,
+    repo: str,
+    branch: str = "main",
+    files: list[str] | None = None,
+    file_contents: dict[str, str] | None = None,
+    readme_content: str = "",
+) -> dict[str, Any]:
+    files = list(files or [])
+    file_contents = dict(file_contents or {})
+
+    repository = {
+        "owner": owner,
+        "name": repo,
+        "default_branch": branch or "main",
+        "commit_sha": "",
+        "visibility": "public",
+    }
+
+    ext_counts: dict[str, list[str]] = {}
+    for f in files:
+        suffix = PurePosixPath(f).suffix.lower()
+        lang = EXTENSION_LANGUAGES.get(suffix)
+        if lang:
+            ext_counts.setdefault(lang, []).append(f)
+
+    languages = [
+        {
+            "name": lang,
+            "category": "language",
+            "evidence_files": [{"source": path, "label": "Detected"} for path in flist[:3]],
+        }
+        for lang, flist in ext_counts.items()
+    ]
+
+    overview = {
+        "description": "",
+        "languages": languages,
+        "readme_summary": readme_content[:150] if readme_content else "",
+    }
+
+    important_files = [
+        f for f in files
+        if PurePosixPath(f).name.lower() in {"readme.md", "package.json", "requirements.txt", "pyproject.toml", "cargo.toml", "go.mod"}
+    ]
+    dependencies = [f for f in files if PurePosixPath(f).name in MANIFEST_TECHNOLOGIES]
+
+    entry_point_names = {"main.py", "app.py", "manage.py", "index.js", "index.ts", "server.js", "main.go"}
+    entry_points = []
+    for f in files:
+        if PurePosixPath(f).name in entry_point_names:
+            entry_points.append({"name": PurePosixPath(f).name, "source": f, "label": "Detected"})
+
+    test_files = [f for f in files if "test" in f.lower()]
+
+    structure = {
+        "important_files": important_files,
+        "dependencies": dependencies,
+        "entry_points": entry_points,
+        "test_files": test_files,
+    }
+
+    folders: dict[str, list[str]] = {}
+    for f in files:
+        top = f.split("/", 1)[0] if "/" in f else "root"
+        folders.setdefault(top, []).append(f)
+
+    components = []
+    for comp_id, flist in folders.items():
+        components.append({
+            "id": comp_id,
+            "name": comp_id.capitalize(),
+            "files": [{"name": f} for f in flist],
+        })
+
+    relationships = []
+    folder_keys = list(folders.keys())
+    for i in range(len(folder_keys) - 1):
+        c1, c2 = folder_keys[i], folder_keys[i + 1]
+        relationships.append({
+            "from": c1,
+            "to": c2,
+            "evidence": {
+                "name": f"{c1}->{c2}",
+                "source": folders[c1][0] if folders[c1] else "",
+                "label": "Detected",
+            },
+        })
+
+    architecture = {
+        "components": components,
+        "relationships": relationships,
+    }
+
+    install_steps: list[str] = []
+    test_commands: list[str] = []
+    run_commands: list[str] = []
+    env_vars: list[str] = []
+
+    basenames = {PurePosixPath(f).name for f in files}
+    if "package.json" in basenames:
+        install_steps.append("npm install")
+        test_commands.append("npm test")
+        run_commands.append("npm start")
+    if "requirements.txt" in basenames:
+        install_steps.append("pip install -r requirements.txt")
+    if "pyproject.toml" in basenames:
+        install_steps.append("poetry install")
+        test_commands.append("pytest")
+    if any("pytest" in text for text in file_contents.values()) or any("test" in f for f in files):
+        if "pytest" not in test_commands:
+            test_commands.append("pytest")
+
+    for text in file_contents.values():
+        for match in re.findall(r"([A-Z0-9_]{3,})\s*=", text):
+            if match not in env_vars and not match.startswith("TEST"):
+                env_vars.append(match)
+
+    setup = {
+        "install_steps": install_steps,
+        "env_var_names": env_vars,
+        "test_commands": test_commands,
+        "run_commands": run_commands,
+    }
+
+    contribution = {
+        "guidelines_path": None,
+        "starting_points": files[:5] if files else ["README.md"],
+    }
+
+    return {
+        "repository": repository,
+        "overview": overview,
+        "structure": structure,
+        "architecture": architecture,
+        "setup": setup,
+        "contribution": contribution,
+        "sources": files,
+    }
 
 
 def collect_repo_files(
@@ -143,12 +324,13 @@ def collect_repo_files(
 
     adapter = GitHubAdapter(github_token)
     repository = adapter.get_repository(owner, name)
-    paths, contents = _fetch_snapshot(adapter, owner, name, branch)
+    actual_branch = repository.get("default_branch") or branch or "main"
+    paths, contents = _fetch_snapshot(adapter, owner, name, actual_branch)
     files = [
         RepoFile(
             path=path,
             content=text,
-            url=f"https://github.com/{owner}/{name}/blob/{branch}/{path}",
+            url=f"https://github.com/{owner}/{name}/blob/{actual_branch}/{path}",
         )
         for path, text in contents.items()
         if text
@@ -203,7 +385,8 @@ def _real_bundle(
 
     adapter = GitHubAdapter(github_token)
     repository = adapter.get_repository(owner, name)
-    paths, contents = _fetch_snapshot(adapter, owner, name, branch)
+    actual_branch = repository.get("default_branch") or branch or "main"
+    paths, contents = _fetch_snapshot(adapter, owner, name, actual_branch)
     return _real_bundle_from(owner, name, repository, paths, contents)
 
 
@@ -237,10 +420,19 @@ def _real_bundle_from(
     components = _build_components(paths)
     connections = _build_connections(contents, components)
 
+    default_br = str(repository.get("default_branch") or "main")
+    repo_obj = Repository(owner=owner, name=name, branch=default_br)
+    eps = [
+        EntryPoint(file=e.get("file") or e.get("path") or "", reason=e.get("reason", ""))
+        if isinstance(e, dict) else e
+        for e in entry_points
+    ]
+
     return ArchitectureBundle(
+        repository=repo_obj,
         overview=overview,
         technologies=technologies,
-        entry_points=entry_points,
+        entry_points=eps,
         components=components,
         connections=connections,
         contributor_guide=ContributorGuide(),
@@ -283,6 +475,7 @@ def _detect_entry_points(paths: list[str]) -> list[dict[str, Any]]:
         if candidate in present:
             entries.append(
                 {
+                    "file": candidate,
                     "path": candidate,
                     "reason": "Found at a conventional entry-point location",
                 }

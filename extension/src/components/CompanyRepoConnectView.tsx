@@ -8,9 +8,11 @@
 import { useState } from "react";
 import type { SessionUser } from "../services/api";
 import type { RepoRef } from "../services/repoDetector";
+import { fetchLiveRepoSnapshot } from "../services/githubApi";
 
 export interface CompanyRepoConnectViewProps {
   user: SessionUser | null;
+  currentRepo?: RepoRef | null;
   onBack: () => void;
   onSelectRepo: (repo: RepoRef) => void;
   onGoToIntegrations: () => void;
@@ -26,16 +28,9 @@ interface MockRepoOption {
   branch: string;
 }
 
-const MOCK_REPOS: MockRepoOption[] = [
-  { id: "1", owner: "org", name: "backend-service", language: "Python", branch: "main" },
-  { id: "2", owner: "org", name: "frontend-web", language: "TypeScript", branch: "main" },
-  { id: "3", owner: "org", name: "data-pipeline", language: "Python", branch: "develop" },
-  { id: "4", owner: "org", name: "mobile-app", language: "Kotlin", branch: "main" },
-  { id: "5", owner: "org", name: "infra", language: "Terraform", branch: "main" },
-];
-
 export function CompanyRepoConnectView({
   user,
+  currentRepo,
   onBack,
   onSelectRepo,
   onGoToIntegrations,
@@ -44,21 +39,29 @@ export function CompanyRepoConnectView({
 }: CompanyRepoConnectViewProps) {
   const [activeBottomNav, setActiveBottomNav] = useState<"home" | "integrations" | "settings">("home");
   const [isRepoListOpen, setIsRepoListOpen] = useState(false);
-  const [selectedRepoId, setSelectedRepoId] = useState<string>("1");
+  const [selectedRepoId, setSelectedRepoId] = useState<string>(currentRepo ? "detected" : "");
   const [searchQuery, setSearchQuery] = useState("");
-  const [pastedUrl, setPastedUrl] = useState("");
+  const [pastedUrl, setPastedUrl] = useState(
+    currentRepo ? `https://github.com/${currentRepo.owner}/${currentRepo.repo}` : ""
+  );
   const [urlError, setUrlError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
-  const [verifiedRepo, setVerifiedRepo] = useState<RepoRef | null>(null);
+  const [verifiedRepo, setVerifiedRepo] = useState<RepoRef | null>(
+    currentRepo ? { owner: currentRepo.owner, repo: currentRepo.repo } : null
+  );
   const [accessDenied, setAccessDenied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
 
-  const username = user?.github_login || "purvadhole";
-  const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
+  const username = user?.github_login || "Developer";
+  const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "D";
+
+  const availableRepos: MockRepoOption[] = currentRepo
+    ? [{ id: "detected", owner: currentRepo.owner, name: currentRepo.repo, language: "Active Repo", branch: "main" }]
+    : [];
 
   // Filter repositories by search query
-  const filteredRepos = MOCK_REPOS.filter(
+  const filteredRepos = availableRepos.filter(
     (r) =>
       r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.owner.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -66,11 +69,14 @@ export function CompanyRepoConnectView({
   );
 
   const handleSelectFromList = () => {
-    const chosen = MOCK_REPOS.find((r) => r.id === selectedRepoId) || MOCK_REPOS[0];
-    setIsRepoListOpen(false);
-    setVerifiedRepo({ owner: chosen.owner, repo: chosen.name });
-    setAccessDenied(false);
-    setUrlError(null);
+    const chosen = availableRepos.find((r) => r.id === selectedRepoId);
+    if (chosen) {
+      setIsRepoListOpen(false);
+      setVerifiedRepo({ owner: chosen.owner, repo: chosen.name });
+      setPastedUrl(`https://github.com/${chosen.owner}/${chosen.name}`);
+      setAccessDenied(false);
+      setUrlError(null);
+    }
   };
 
   const handleUrlChange = (val: string) => {
@@ -89,7 +95,7 @@ export function CompanyRepoConnectView({
     }
   };
 
-  const handleVerifyUrl = () => {
+  const handleVerifyUrl = async () => {
     if (!pastedUrl.trim()) return;
     if (urlError) return;
 
@@ -102,23 +108,26 @@ export function CompanyRepoConnectView({
     setIsVerifying(true);
     setAccessDenied(false);
     setVerifiedRepo(null);
+    setUrlError(null);
 
-    setTimeout(() => {
+    try {
+      const snap = await fetchLiveRepoSnapshot(parts[0], parts[1]);
       setIsVerifying(false);
-      // If user typed "unknown-repo" or similar error demo
-      if (parts[1].toLowerCase().includes("unknown") || parts[1].toLowerCase().includes("denied")) {
+      setVerifiedRepo({ owner: snap.metadata.owner, repo: snap.metadata.repo });
+    } catch (err: any) {
+      setIsVerifying(false);
+      const errMsg = err?.message || String(err);
+      if (errMsg.includes("404") || errMsg.includes("403") || errMsg.includes("not found")) {
         setAccessDenied(true);
       } else {
-        setVerifiedRepo({ owner: parts[0], repo: parts[1] });
+        setUrlError(errMsg);
       }
-    }, 700);
+    }
   };
 
   const handleContinueOnboarding = () => {
     if (verifiedRepo) {
       onSelectRepo(verifiedRepo);
-    } else {
-      onSelectRepo({ owner: "acme", repo: "payment-service" });
     }
   };
 

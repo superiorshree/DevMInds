@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import type { RepoRef } from "../services/repoDetector";
+import { postChat } from "../services/api";
 
 export interface OpenSourceAiMentorChatProps {
   repo: RepoRef;
@@ -22,22 +23,17 @@ interface Message {
 
 const DEFAULT_MESSAGES: Message[] = [
   {
-    id: "1",
-    sender: "user",
-    text: "How does semantic search work in SeaGOAT?",
-  },
-  {
-    id: "2",
+    id: "welcome",
     sender: "ai",
-    text: "SeaGOAT combines semantic search with conventional text and regular-expression matching. Its documented stack includes embeddings and ChromaDB for semantic search, while ripgrep supports text-based matching. The CLI and server provide the documented search workflow.",
-    sources: ["README.md", "pyproject.toml"],
+    text: "Hello! I am your DevMinds AI Mentor. Ask me anything about this repository's structure, files, or setup.",
+    sources: [],
   },
 ];
 
 const SUGGESTIONS = [
-  "What is ChromaDB used for here?",
-  "How does the gt command reach the server?",
-  "Which files should I inspect for issue #751?",
+  "Explain the project structure and main components.",
+  "Which technologies and entry points does this repo use?",
+  "How do I set up and run this codebase locally?",
 ];
 
 export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChatProps) {
@@ -45,10 +41,10 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
   const [inputVal, setInputVal] = useState("");
   const [isTyping, setIsTyping] = useState(false);
 
-  const repoName = repo.repo || "SeaGOAT";
-  const repoOwner = repo.owner || "kantord";
+  const repoName = repo.repo || "";
+  const repoOwner = repo.owner || "";
 
-  const handleSend = (textToSend?: string) => {
+  const handleSend = async (textToSend?: string) => {
     const text = (textToSend || inputVal).trim();
     if (!text) return;
 
@@ -61,30 +57,27 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
     setInputVal("");
     setIsTyping(true);
 
-    setTimeout(() => {
-      let aiResponseText = `Based on the ${repoName} codebase, this component interacts through documented CLI entry points and relies on verified local processing pipelines.`;
-      let sources = ["README.md"];
-
-      if (text.includes("ChromaDB")) {
-        aiResponseText = "ChromaDB acts as the local vector database storing vector embeddings of your repository's code files to enable semantic, meaning-based code search.";
-        sources = ["seagoat/engine.py", "pyproject.toml"];
-      } else if (text.includes("gt") || text.includes("server")) {
-        aiResponseText = "The 'gt' CLI tool communicates with the background seagoat-server via local HTTP requests over a unix socket or local port to quickly query cached embeddings.";
-        sources = ["seagoat/server.py", "README.md"];
-      } else if (text.includes("751") || text.includes("issue")) {
-        aiResponseText = "For issue #751, inspect the file extension parsers in seagoat/repository.py and check related test coverage in tests/test_file_types.py.";
-        sources = ["seagoat/repository.py", "tests/test_file_types.py"];
-      }
-
+    try {
+      const res = await postChat(repoOwner, repoName, text);
+      const sourcesList = (res.sources || []).map((s) => s.title || s.url || String(s));
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         sender: "ai",
-        text: aiResponseText,
-        sources,
+        text: res.answer || (res.error ? res.error.message : "I could not find an answer in the repository context."),
+        sources: sourcesList,
       };
       setMessages((prev) => [...prev, aiMsg]);
+    } catch (err: any) {
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: "ai",
+        text: err?.message ? `AI Mentor: ${err.message}` : "Unable to reach the AI chat backend. Make sure the backend server is running.",
+        sources: [],
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
       setIsTyping(false);
-    }, 600);
+    }
   };
 
   return (

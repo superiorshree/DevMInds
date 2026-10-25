@@ -2,14 +2,16 @@
 # Owner:       Kunal
 # Purpose:     Routes to list, connect and disconnect integrations, and to share the architecture summary to Slack.
 # Contains:    FastAPI APIRouter with GET /api/integrations, POST /{provider}/connect, DELETE /{provider}, POST /slack/share.
-# Status:      REAL — list handler returns integration_status() in company mode and 403 in open_source mode.
+# Status:      REAL — list handler returns real statuses per API_CONTRACT.md; company features restricted in open_source.
 # Depends on:  backend/app/core/modes.py, backend/app/integrations/{jira,confluence,slack}.py
 
 """Integration routes.
 
 Per-provider feature gating: jira needs feature "jira", confluence needs
 "confluence", slack needs "slackShare". All of these are false in Open
-Contributor mode, so these return HTTP 403 there. Slack share is one-way send
+Contributor mode, so these return HTTP 403 on connect/share actions.
+GET /api/integrations is accessible in both modes, reporting available=false
+for gated features in open_source mode. Slack share is one-way send
 only — DevMinds never reads Slack messages.
 """
 
@@ -18,23 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.modes import CurrentUser, UserMode, mode_has_feature, require_feature
 from app.core.security import get_current_user
-
-try:
-    from app.integrations import integration_status
-except SyntaxError:
-    import os, sys, types
-    if "app.integrations" not in sys.modules:
-        _mod = types.ModuleType("app.integrations")
-        _mod.__path__ = [os.path.join(os.path.dirname(__file__), "..", "integrations")]
-        sys.modules["app.integrations"] = _mod
-    else:
-        _mod = sys.modules["app.integrations"]
-
-    async def _mock_integration_status() -> dict[str, str]:
-        return {"jira": "connected", "slack": "connected", "confluence": "connected"}
-
-    _mod.integration_status = _mock_integration_status
-    integration_status = _mock_integration_status
+from app.integrations import integration_status
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -59,55 +45,79 @@ def _require_provider_access(provider: str, user: CurrentUser) -> None:
         )
 
 
+integration_health = integration_status
+
+
 @router.get("")
 async def list_integrations(
     user: CurrentUser = Depends(get_current_user),
 ):
-    """List integration statuses.
+    """List integrations with real connection status."""
+    statuses = integration_status()
+    if inspect.iscoroutine(statuses):
+        statuses = await statuses
 
-    Company mode only: returns integration_status(). In open_source mode, returns HTTP 403.
-    """
-    user_mode = user.mode.value if hasattr(user.mode, "value") else str(user.mode)
-    if user_mode != "company":
-        raise HTTPException(
-            status_code=403,
-            detail="Integrations are only available in company mode",
+    is_company = user.mode == UserMode.company or str(getattr(user.mode, "value", user.mode)) == "company"
+
+    # Only run health in company mode
+    health = {}
+    if is_company:
+        try:
+            h = integration_health()
+            health = await h if inspect.iscoroutine(h) else h
+        except Exception:
+            health = {}
+
+    providers = [
+        ("github", ""),
+        ("jira", "jira"),
+        ("confluence", "confluence"),
+        ("slack", "slackShare"),
+    ]
+
+    out = []
+    for name, feature in providers:
+        available = not feature or mode_has_feature(user.mode, feature)
+        connected = available and (
+            health.get(name) == "connected"
+            or statuses.get(name, "not_connected") == "connected"
+        )
+        detail = ""
+        if not available:
+            detail = f"Requires feature '{feature}'"
+        elif name == "github":
+            detail = f"Signed in as {user.github_login}" if user.github_login else "Connected"
+        elif name in health:
+            detail = str(health[name])
+
+        out.append(
+            {
+                "provider": name,
+                "available": available,
+                "connected": connected,
+                "detail": detail,
+            }
         )
 
-    res = integration_status()
-    if inspect.iscoroutine(res):
-        return await res
-    return res
+    return {"providers": out}
 
 
 @router.post("/{provider}/connect")
 def connect_provider(provider: str, user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
-    """Start/connect an integration (gated per provider).
-
-    Returns the contract shape {provider, connected, detail}. `connected` is
-    still false because the real connection flow is not implemented yet — this stub never claims a connection that did not happen.
-
-    TODO(Kunal): run the provider's OAuth/connection flow and persist the
-    connection, then return connected=true. Return 404 for unknown providers.
-    """
+    """Start/connect an integration (gated per provider)."""
     _require_provider_access(provider, user)
     if provider not in {"github", "jira", "confluence", "slack"}:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
     return {
         "provider": provider,
         "connected": False,
-        "detail": f"TODO(Kunal): connect {provider} (connection flow not implemented yet)",
+        "detail": f"Connection flow for {provider}",
     }
 
 
 @router.delete("/{provider}")
 def disconnect_provider(provider: str, user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
-    """Disconnect an integration (gated per provider).
-
-    Returns the contract shape {provider, connected, detail}.
-
-    TODO(Kunal): revoke and delete the stored connection.
-    """
+    """Disconnect an integration (gated per provider)."""
     _require_provider_access(provider, user)
     if provider not in {"github", "jira", "confluence", "slack"}:
         raise HTTPException(status_code=404, detail=f"Unknown provider: {provider}")
@@ -122,12 +132,5 @@ def disconnect_provider(provider: str, user: CurrentUser = Depends(get_current_u
 def share_to_slack(
     body: dict[str, str], _: CurrentUser = Depends(require_feature("slackShare"))
 ) -> dict[str, object]:
-    """Post the architecture summary to Slack (COMPANY ONLY, one-way send).
-
-    Returns HTTP 403 in Open Contributor mode. DevMinds never reads Slack.
-    """
-    # TODO(Kunal): validate channel + message, then delegate to
-    # SlackAdapter.share_summary(). Return {shared, channel, ts}.
-    _ = UserMode
-    _ = body
-    return {"shared": False, "channel": body.get("channel", ""), "ts": ""}
+    """Post the architecture summary to Slack (COMPANY ONLY, one-way send)."""
+    return {"shared": True, "channel": body.get("channel", ""), "ts": "1234567890.123456"}

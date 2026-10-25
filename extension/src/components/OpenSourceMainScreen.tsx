@@ -8,10 +8,17 @@
 import { useState } from "react";
 import type { SessionUser } from "../services/api";
 import type { RepoRef } from "../services/repoDetector";
+import type { ArchitectureBundle } from "../types/architecture";
+import type { LiveRepoSnapshot } from "../services/githubApi";
 
 export interface OpenSourceMainScreenProps {
   repo: RepoRef;
   user: SessionUser | null;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
+  isAnalyzing?: boolean;
+  analyzeError?: string | null;
+  onRetryAnalysis?: () => void;
   onOpenFeature: (feature: "overview" | "architecture" | "setup" | "contributions") => void;
   onOpenAiMentor: () => void;
   onChangeMode?: () => void;
@@ -22,6 +29,11 @@ export interface OpenSourceMainScreenProps {
 export function OpenSourceMainScreen({
   repo,
   user,
+  architectureData,
+  liveRepo,
+  isAnalyzing = false,
+  analyzeError = null,
+  onRetryAnalysis,
   onOpenFeature,
   onOpenAiMentor,
   onChangeMode,
@@ -33,9 +45,13 @@ export function OpenSourceMainScreen({
   const [menuOpen, setMenuOpen] = useState(false);
 
   const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
-  const repoName = repo.repo || "SeaGOAT";
-  const repoOwner = repo.owner || "kantord";
+  const repoName = repo.repo || liveRepo?.metadata?.repo || "";
+  const repoOwner = repo.owner || liveRepo?.metadata?.owner || "";
   const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
+  const repoDescription =
+    architectureData?.overview?.summary ||
+    liveRepo?.metadata?.description ||
+    (isAnalyzing ? "Analyzing repository structure and architecture..." : "Public GitHub repository.");
 
   return (
     <div
@@ -280,7 +296,7 @@ export function OpenSourceMainScreen({
           </div>
 
           <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#4b5563", lineHeight: 1.45 }}>
-            Local-first semantic code search with text and regex search.
+            {repoDescription}
           </p>
 
           <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "12px" }}>
@@ -298,23 +314,95 @@ export function OpenSourceMainScreen({
             </a>
           </div>
 
-          {/* Analysis Complete Badge */}
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "4px 10px",
-              backgroundColor: "#dcfce7",
-              color: "#166534",
-              borderRadius: "9999px",
-              fontSize: "11.5px",
-              fontWeight: 700,
-            }}
-          >
-            <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
-            <span>Analysis complete</span>
-          </div>
+          {/* Analysis Status Badge */}
+          {isAnalyzing ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#fef3c7",
+                color: "#92400e",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#f59e0b" }} />
+              <span>Analyzing repository...</span>
+            </div>
+          ) : analyzeError ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#fee2e2",
+                color: "#991b1b",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#ef4444" }} />
+              <span>Live GitHub facts loaded</span>
+              {onRetryAnalysis && (
+                <button
+                  type="button"
+                  onClick={onRetryAnalysis}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#2563eb",
+                    textDecoration: "underline",
+                    cursor: "pointer",
+                    fontSize: "11.5px",
+                    fontWeight: 700,
+                    padding: 0,
+                    marginLeft: "4px",
+                  }}
+                >
+                  Retry AI
+                </button>
+              )}
+            </div>
+          ) : architectureData ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#dcfce7",
+                color: "#166534",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
+              <span>Analysis complete</span>
+            </div>
+          ) : (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "4px 10px",
+                backgroundColor: "#dcfce7",
+                color: "#166534",
+                borderRadius: "9999px",
+                fontSize: "11.5px",
+                fontWeight: 700,
+              }}
+            >
+              <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
+              <span>Repository connected</span>
+            </div>
+          )}
         </div>
 
         {/* FEATURES label */}

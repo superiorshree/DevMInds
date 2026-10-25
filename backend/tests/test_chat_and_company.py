@@ -258,14 +258,17 @@ async def test_company_chat_includes_connector_errors(monkeypatch):
 
 
 def test_integrations_and_company_context_403_in_open_source(monkeypatch):
-    """Both /api/integrations and /api/company/context return 403 in open_source mode."""
+    """Company context is 403 in open_source mode and integrations are restricted."""
     _set_user(UserMode.open_source)
-
-    res_int = client.get("/api/integrations")
-    assert res_int.status_code == 403
 
     res_comp = client.get("/api/company/context?repo=owner/repo")
     assert res_comp.status_code == 403
+
+    res_int = client.get("/api/integrations")
+    assert res_int.status_code == 200
+    providers = {item["provider"]: item for item in res_int.json()["providers"]}
+    for provider in ("jira", "slack", "confluence"):
+        assert providers[provider]["available"] is False
 
 
 @pytest.mark.asyncio
@@ -278,12 +281,14 @@ async def test_integrations_and_company_context_allowed_in_company(monkeypatch):
     monkeypatch.setattr(
         int_module,
         "integration_status",
-        AsyncMock(return_value={"jira": "connected", "slack": "connected", "confluence": "connected"}),
+        lambda: {"jira": "connected", "slack": "connected", "confluence": "connected"},
     )
 
     res_int = client.get("/api/integrations")
     assert res_int.status_code == 200
-    assert res_int.json() == {"jira": "connected", "slack": "connected", "confluence": "connected"}
+    providers = {item["provider"]: item for item in res_int.json()["providers"]}
+    assert providers["jira"]["available"] is True
+    assert providers["jira"]["connected"] is True
 
     import app.api.company as comp_module
 

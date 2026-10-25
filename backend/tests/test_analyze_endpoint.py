@@ -114,7 +114,8 @@ def clear_cache():
 # Create a TestClient with the router
 # ---------------------------------------------------------------------------
 
-client = TestClient(router)
+from app.main import app
+client = TestClient(app)
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +125,7 @@ client = TestClient(router)
 class TestAnalyzeEndpoint:
     """Tests for POST /api/repositories/analyze."""
 
-    def test_public_repo_success(self):
+    def test_public_repo_success(self, monkeypatch):
         """A public repo can be analyzed successfully."""
         # Mock the GitHub adapter
         mock_adapter = MockGithubAdapter()
@@ -160,6 +161,15 @@ class TestAnalyzeEndpoint:
             algorithm="HS256",
         )
 
+        from app.core.security import _USERS, StoredUser
+        _USERS[user.id] = StoredUser(
+            id=user.id,
+            github_login=user.github_login,
+            avatar_url=user.avatar_url,
+            mode=user.mode,
+        )
+        monkeypatch.setattr("app.integrations.github.GitHubAdapter", lambda *args, **kwargs: mock_adapter)
+
         # Call the analyze endpoint
         body = AnalyzeRequest(owner="owner", name="testrepo")
         response = client.post(
@@ -183,7 +193,7 @@ class TestAnalyzeEndpoint:
         cache_key = ("user1", "open_source", "owner", "testrepo", "")
         assert cache_key in _analysis_cache
 
-    def test_private_repo_403_open_source(self):
+    def test_private_repo_403_open_source(self, monkeypatch):
         """A private repo in open_source mode returns 403 with PRIVATE_REPO_REQUIRES_COMPANY_MODE."""
         # Mock the GitHub adapter with a private repo
         mock_adapter = MockGithubAdapter(repo_info={
@@ -213,4 +223,20 @@ class TestAnalyzeEndpoint:
             algorithm="HS256",
         )
 
-        # Call the analyze en
+
+        from app.core.security import _USERS, StoredUser
+        _USERS[user.id] = StoredUser(
+            id=user.id,
+            github_login=user.github_login,
+            avatar_url=user.avatar_url,
+            mode=user.mode,
+        )
+        monkeypatch.setattr("app.integrations.github.GitHubAdapter", lambda *args, **kwargs: mock_adapter)
+
+        response = client.post(
+            "/api/repositories/analyze",
+            json={"owner": "owner", "name": "privaterepo"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "PRIVATE_REPO_REQUIRES_COMPANY_MODE"

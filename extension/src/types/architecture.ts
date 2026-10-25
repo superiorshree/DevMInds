@@ -118,8 +118,18 @@ export interface SourceLink {
 
 /** The shape returned by POST /api/chat. */
 export interface ChatResponse {
-  answer: string;
+  answer: string | null;
   sources: SourceLink[];
+  provider?: "ollama" | "external" | null;
+  error?: {
+    code: string;
+    message: string;
+  } | null;
+  connector_errors?: Array<{
+    source_type: string;
+    code: string;
+    message: string;
+  }>;
 }
 
 /** A provider's connection status as returned by GET /api/integrations. */

@@ -12,11 +12,18 @@ import { SourceCard } from "../components/SourceCard";
 
 /** Props for the contribute tab. */
 export interface ContributeTabProps {
-  guide: ContributorGuide;
+  guide?: ContributorGuide | null;
 }
 
 /** Shows a new contributor how to get started and where to help. */
 export function ContributeTab({ guide }: ContributeTabProps) {
+  if (!guide || (!guide.setup_steps.length && !guide.contribution_rules.length)) {
+    return (
+      <section className="contribute-tab" style={{ padding: "16px 0", color: "#6b7280", fontSize: "13px" }}>
+        No specific contribution guide or steps detected for this repository. Check the repository README or CONTRIBUTING.md.
+      </section>
+    );
+  }
   return (
     <section className="contribute-tab">
       <h3 style={{ fontSize: "var(--font-size-md)" }}>Setup</h3>

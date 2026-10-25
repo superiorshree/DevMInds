@@ -242,3 +242,6 @@ class ConfluenceConnector(BaseConnector):
 
         except (httpx.HTTPError, ValueError, TypeError):
             return []
+
+
+ConfluenceAdapter = ConfluenceConnector

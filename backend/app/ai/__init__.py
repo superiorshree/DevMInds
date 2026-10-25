@@ -1,17 +1,12 @@
 # File:        backend/app/ai/__init__.py
 # Owner:       Devyani
-# Purpose:     Stub AI module — to be replaced with real implementation.
-# Contains:    get_ai_service() returning AIService with fake answer() and health(); re-exports the frozen
-#              AIAnswer / AIError contracts from app.schemas.contracts (no local duplicates).
-# Status:      STUB, to be replaced by Devyani (real providers live behind app/ai/base.py + gateway.py).
-# Depends on:  backend/app/schemas/contracts.py (AIAnswer, AIError — frozen)
 # Purpose:     AI module public interface — AIService with answer() and health()
 # Contains:    AIAnswer/AIError re-exports from contracts, AIService, get_ai_service()
 # Status:      REAL
 # Depends on:  backend/app/core/config.py (get_settings),
 #              backend/app/schemas/contracts.py (AIAnswer, AIError),
 #              backend/app/ai/gateway.py, backend/app/ai/ollama_provider.py,
-#              backend/app/ai/external_provider.py
+#              backend/app/ai/external_provider.py, backend/app/agents/mentor.py
 
 from typing import Any, Dict, List, Literal
 
@@ -65,39 +60,13 @@ class AIService:
                 error=AIError(code="AI_DISABLED", message="AI chat is disabled by configuration.")
             )
 
-        # Only used to label the answer. The gateway makes the real routing decision.
-        is_private = gateway.classify(repository_context, company_context) == "private"
-        provider_name = "ollama" if is_private else "external"
-
-        # TODO(Devyani): build the real messages (system prompt + marked data
-        # block + sources) when the Mentor task is written.
-        messages = [{"role": "user", "content": question}]
-
-        try:
-            text = await gateway.complete(messages, repository_context, company_context)
-            return AIAnswer(answer=text, provider=provider_name)
-        except PrivateAIUnavailable:
-            return AIAnswer(
-                provider="ollama",
-                error=AIError(code="PRIVATE_AI_UNAVAILABLE", message=await self._private_hint()),
-            )
-        except ExternalNotAllowed as exc:
-            return AIAnswer(
-                provider="external",
-                error=AIError(code="EXTERNAL_AI_NOT_ALLOWED", message=exc.message),
-            )
-        except ProviderError as exc:
-            return AIAnswer(
-                provider=provider_name,
-                error=AIError(code="PROVIDER_ERROR", message=exc.message),
-            )
-
-    async def _private_hint(self) -> str:
-        """Explain why Ollama failed, with the exact command to fix it."""
-        if await OllamaProvider().health() == "model_missing":
-            model = get_settings().ollama_model
-            return f"Model '{model}' is not installed. Run `ollama pull {model}` and try again."
-        return "Private AI is not running. Start Ollama on this laptop."
+        from app.agents.mentor import answer_mentor_question
+        return await answer_mentor_question(
+            question=question,
+            repository_context=repository_context,
+            company_context=company_context,
+            mode=mode,
+        )
 
     async def health(self) -> Dict[str, HealthStatus]:
         """Report both providers: {"ollama": ..., "external": ...}.

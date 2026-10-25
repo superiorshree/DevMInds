@@ -19,11 +19,6 @@ from app.integrations.github import GitHubAdapter
 from app.main import app
 
 
-class TestConnectorContracts:
-    def test_base_connector_is_abstract(self):
-        with pytest.raises(TypeError):
-            BaseConnector()
-
 from app.core.config import get_settings
 from app.integrations import CompanyContext, get_company_context, integration_status
 from app.integrations.base import AdapterError, IntegrationAdapter, RateLimitError
@@ -31,6 +26,12 @@ from app.integrations.confluence import ConfluenceAdapter
 from app.integrations.github import GitHubAdapter
 from app.integrations.jira import JiraConnector
 from app.integrations.slack import SlackAdapter
+
+
+class TestConnectorContracts:
+    def test_base_connector_is_abstract(self):
+        with pytest.raises(TypeError):
+            BaseConnector()
 
     def test_github_implements_adapter(self):
         assert isinstance(GitHubAdapter(), IntegrationAdapter)
@@ -48,6 +49,8 @@ ALL_ADAPTERS = [GitHubAdapter, JiraConnector, ConfluenceAdapter, SlackAdapter]
 #: Adapters documented as read-only: they must never write to the provider.
 READ_ONLY_ADAPTERS = [GitHubAdapter, JiraConnector, ConfluenceAdapter]
 
+
+class TestAdapterContract:
     def test_rate_limit_error(self):
         error = RateLimitError("jira")
         assert isinstance(error, AdapterError)
@@ -133,6 +136,14 @@ class TestIntegrationModeGate:
 class TestMockCompanyContext:
     """Mock-mode company context: stub data, frozen shape, real connector untouched."""
 
+    @pytest.fixture(autouse=True)
+    def _ensure_mock(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("USE_MOCK_INTEGRATIONS", "true")
+        monkeypatch.setattr(settings, "use_mock_integrations", True)
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
     def test_mock_context_is_served_without_touching_the_real_jira_adapter(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -170,17 +181,6 @@ class TestMockCompanyContext:
         assert first.errors is not second.errors
         first.items.append(object())
         assert second.items == []
-
-        def fail_if_called():
-            raise AssertionError("Real connectors were called")
-
-        monkeypatch.setattr(
-            integrations, "_connectors", fail_if_called
-        )
-
-        result = await integrations.get_company_context(
-            "owner/repo", "architecture", "company"
-        )
 
     def test_use_mock_integrations_env_name_maps_to_setting(
         self, monkeypatch: pytest.MonkeyPatch

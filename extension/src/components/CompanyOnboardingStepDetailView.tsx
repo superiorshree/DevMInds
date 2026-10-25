@@ -13,11 +13,16 @@
 
 import React, { useState } from "react";
 import type { SessionUser } from "../services/api";
+import type { ArchitectureBundle } from "../types/architecture";
+import type { LiveRepoSnapshot } from "../services/githubApi";
 
 export interface CompanyOnboardingStepDetailViewProps {
   step: number; // 1 to 8
   repo: { owner?: string; repo?: string };
   user: SessionUser | null;
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
+  companyContext?: { items: any[]; errors: any[] } | null;
   completedSteps: number[];
   onToggleComplete: (step: number) => void;
   onNavigateStep: (step: number) => void;
@@ -32,6 +37,9 @@ export function CompanyOnboardingStepDetailView({
   step,
   repo,
   user,
+  architectureData,
+  liveRepo,
+  companyContext,
   completedSteps,
   onToggleComplete,
   onNavigateStep,
@@ -42,8 +50,8 @@ export function CompanyOnboardingStepDetailView({
   onOpenSettings,
 }: CompanyOnboardingStepDetailViewProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const repoName = repo.repo || "payment-service";
-  const repoOwner = repo.owner || "acme";
+  const repoName = repo.repo || liveRepo?.metadata?.repo || "repository";
+  const repoOwner = repo.owner || liveRepo?.metadata?.owner || "org";
   const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
 
   return (
@@ -263,6 +271,8 @@ export function CompanyOnboardingStepDetailView({
           <Step1RepositoryOverview
             repoOwner={repoOwner}
             repoName={repoName}
+            liveRepo={liveRepo}
+            architectureData={architectureData}
             isCompleted={completedSteps.includes(1)}
             onToggleComplete={() => onToggleComplete(1)}
             onNext={() => onNavigateStep(2)}
@@ -271,6 +281,8 @@ export function CompanyOnboardingStepDetailView({
 
         {step === 2 && (
           <Step2ArchitectureExplorer
+            architectureData={architectureData}
+            liveRepo={liveRepo}
             isCompleted={completedSteps.includes(2)}
             onToggleComplete={() => onToggleComplete(2)}
             onNext={() => onNavigateStep(3)}
@@ -279,6 +291,8 @@ export function CompanyOnboardingStepDetailView({
 
         {step === 3 && (
           <Step3CodeFlowExplorer
+            architectureData={architectureData}
+            liveRepo={liveRepo}
             isCompleted={completedSteps.includes(3)}
             onToggleComplete={() => onToggleComplete(3)}
             onNext={() => onNavigateStep(4)}
@@ -287,6 +301,8 @@ export function CompanyOnboardingStepDetailView({
 
         {step === 4 && (
           <Step4ImportantCodeFinder
+            architectureData={architectureData}
+            liveRepo={liveRepo}
             isCompleted={completedSteps.includes(4)}
             onToggleComplete={() => onToggleComplete(4)}
             onNext={() => onNavigateStep(5)}
@@ -295,6 +311,7 @@ export function CompanyOnboardingStepDetailView({
 
         {step === 5 && (
           <Step5DependenciesImpact
+            architectureData={architectureData}
             isCompleted={completedSteps.includes(5)}
             onToggleComplete={() => onToggleComplete(5)}
             onNext={() => onNavigateStep(6)}
@@ -303,6 +320,8 @@ export function CompanyOnboardingStepDetailView({
 
         {step === 6 && (
           <Step6SetupTestingGuide
+            architectureData={architectureData}
+            liveRepo={liveRepo}
             isCompleted={completedSteps.includes(6)}
             onToggleComplete={() => onToggleComplete(6)}
             onNext={() => onNavigateStep(7)}
@@ -311,6 +330,8 @@ export function CompanyOnboardingStepDetailView({
 
         {step === 7 && (
           <Step7AvailableEngineeringWork
+            companyContext={companyContext}
+            architectureData={architectureData}
             isCompleted={completedSteps.includes(7)}
             onToggleComplete={() => onToggleComplete(7)}
             onNext={() => onNavigateStep(8)}
@@ -321,6 +342,9 @@ export function CompanyOnboardingStepDetailView({
           <Step8YourOnboardingGuide
             repoOwner={repoOwner}
             repoName={repoName}
+            liveRepo={liveRepo}
+            architectureData={architectureData}
+            companyContext={companyContext}
             isCompleted={completedSteps.includes(8)}
             onToggleComplete={() => onToggleComplete(8)}
             onNext={onBackToRoadmap}
@@ -398,19 +422,36 @@ export function CompanyOnboardingStepDetailView({
 function Step1RepositoryOverview({
   repoOwner,
   repoName,
+  liveRepo,
+  architectureData,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
   repoOwner: string;
   repoName: string;
+  liveRepo?: LiveRepoSnapshot | null;
+  architectureData?: ArchitectureBundle | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
 }) {
+  const primaryLang =
+    liveRepo?.metadata?.primaryLanguage ||
+    architectureData?.overview?.primary_language ||
+    architectureData?.technologies?.[0]?.name ||
+    "Repository";
+  const defaultBranch =
+    liveRepo?.metadata?.defaultBranch || architectureData?.repository?.branch || "main";
+  const updatedDate = architectureData?.overview?.last_updated || "Recently";
+  const summaryText =
+    architectureData?.overview?.summary ||
+    liveRepo?.metadata?.description ||
+    "No README summary available for this repository.";
+  const isPrivate = false;
+
   return (
     <div>
-      {/* Tag */}
       <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
         <span style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase" }}>
           [01] Get to Know the Repository
@@ -421,7 +462,7 @@ function Step1RepositoryOverview({
         Repository Overview
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        Understand the project's purpose, owner, programming languages, technologies and README summary.
+        Understand the project's purpose, owner, programming languages, technologies and verified summary.
       </p>
 
       {/* Main Card */}
@@ -449,12 +490,22 @@ function Step1RepositoryOverview({
               <span style={{ fontWeight: 800, fontSize: "16px", color: "#111827" }}>
                 {repoOwner} / {repoName}
               </span>
-              <span style={{ fontSize: "10.5px", fontWeight: 700, padding: "1px 7px", backgroundColor: "#dcfce7", color: "#15803d", borderRadius: "10px", border: "1px solid #bbf7d0" }}>
-                Public
+              <span
+                style={{
+                  fontSize: "10.5px",
+                  fontWeight: 700,
+                  padding: "1px 7px",
+                  backgroundColor: isPrivate ? "#fef3c7" : "#dcfce7",
+                  color: isPrivate ? "#92400e" : "#15803d",
+                  borderRadius: "10px",
+                  border: isPrivate ? "1px solid #fde68a" : "1px solid #bbf7d0",
+                }}
+              >
+                {isPrivate ? "Private" : "Public"}
               </span>
             </div>
             <div style={{ fontSize: "12px", color: "#4b5563", marginTop: "2px" }}>
-              Payment processing and transaction management service.
+              {liveRepo?.metadata?.description || "Repository connected via GitHub API."}
             </div>
           </div>
         </div>
@@ -462,8 +513,8 @@ function Step1RepositoryOverview({
         {/* Badges Row */}
         <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", fontSize: "11.5px", color: "#4b5563" }}>
           <span style={{ display: "inline-flex", alignItems: "center", gap: "5px", fontWeight: 600, color: "#111827" }}>
-            <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#3572A5" }} />
-            Python
+            <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#3b82f6" }} />
+            {primaryLang}
           </span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontWeight: 600, color: "#111827" }}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -472,18 +523,21 @@ function Step1RepositoryOverview({
               <circle cx="6" cy="18" r="3" />
               <path d="M18 9a9 9 0 0 1-9 9" />
             </svg>
-            main
+            {defaultBranch}
           </span>
-          <span style={{ color: "#6b7280" }}>Updated 3 days ago</span>
+          <span style={{ color: "#6b7280" }}>Updated: {updatedDate}</span>
+          {typeof liveRepo?.metadata?.stars === "number" && (
+            <span style={{ color: "#6b7280" }}>★ {liveRepo.metadata.stars.toLocaleString()}</span>
+          )}
         </div>
 
         {/* README Summary */}
         <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
           <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: "6px" }}>
-            README Summary
+            README / Architecture Summary
           </div>
           <div style={{ fontSize: "12px", color: "#374151", lineHeight: 1.5 }}>
-            This service handles payment processing, transaction management and integrates with external payment providers. It provides APIs for payment initiation, status checks and refunds.
+            {summaryText}
           </div>
         </div>
 
@@ -492,34 +546,35 @@ function Step1RepositoryOverview({
           {/* Primary Languages */}
           <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "10px" }}>
             <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "8px" }}>
-              Primary Languages
+              Languages
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "5px", fontSize: "11.5px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Python</span>
-                <span style={{ fontWeight: 700 }}>72%</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Docker</span>
-                <span style={{ fontWeight: 700 }}>12%</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between", color: "#6b7280" }}>
-                <span>Other</span>
-                <span style={{ fontWeight: 700 }}>16%</span>
-              </div>
+              {liveRepo?.languages && liveRepo.languages.length > 0 ? (
+                liveRepo.languages.slice(0, 4).map((lang) => (
+                  <div key={lang} style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>{lang}</span>
+                    <span style={{ fontWeight: 700 }}>Active</span>
+                  </div>
+                ))
+              ) : (
+                <div style={{ color: "#6b7280" }}>{primaryLang}</div>
+              )}
             </div>
           </div>
 
           {/* Tech Stack */}
           <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "10px" }}>
             <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "8px" }}>
-              Tech Stack
+              Technologies Detected
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11.5px", fontWeight: 600, color: "#111827" }}>
-              <div>• FastAPI</div>
-              <div>• PostgreSQL</div>
-              <div>• Docker</div>
-              <div>• Redis</div>
+              {architectureData?.technologies && architectureData.technologies.length > 0 ? (
+                architectureData.technologies.slice(0, 5).map((t) => (
+                  <div key={t.name}>• {t.name} {t.category ? `(${t.category})` : ""}</div>
+                ))
+              ) : (
+                <div style={{ color: "#6b7280" }}>• {primaryLang}</div>
+              )}
             </div>
           </div>
         </div>
@@ -530,30 +585,25 @@ function Step1RepositoryOverview({
             Important Folders &amp; Files
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", fontSize: "11.5px", marginBottom: "10px" }}>
-            <div>
-              <span style={{ fontWeight: 700, color: "#18181b" }}>src/</span>
-              <span style={{ color: "#6b7280", marginLeft: "4px" }}>main code</span>
-            </div>
-            <div>
-              <span style={{ color: "#6b7280" }}>Default branch: </span>
-              <span style={{ fontWeight: 700 }}>main</span>
-            </div>
-            <div>
-              <span style={{ fontWeight: 700, color: "#18181b" }}>tests/</span>
-              <span style={{ color: "#6b7280", marginLeft: "4px" }}>test cases</span>
-            </div>
-            <div>
-              <span style={{ color: "#6b7280" }}>Repo size: </span>
-              <span style={{ fontWeight: 700 }}>12.4 MB</span>
-            </div>
-            <div>
-              <span style={{ fontWeight: 700, color: "#18181b" }}>docs/</span>
-              <span style={{ color: "#6b7280", marginLeft: "4px" }}>documentation</span>
-            </div>
-            <div>
-              <span style={{ color: "#6b7280" }}>Total files: </span>
-              <span style={{ fontWeight: 700 }}>248</span>
-            </div>
+            {(architectureData?.entry_points && architectureData.entry_points.length > 0 ? (
+              architectureData.entry_points.slice(0, 4).map((ep) => ({
+                label: ep.file.split("/").pop() || ep.file,
+                desc: ep.reason.slice(0, 24),
+              }))
+            ) : (liveRepo?.topFiles && liveRepo.topFiles.length > 0 ? (
+              liveRepo.topFiles.slice(0, 4).map((f) => ({
+                label: f.name,
+                desc: f.path,
+              }))
+            ) : [
+              { label: "README.md", desc: "docs" },
+              { label: defaultBranch, desc: "branch" }
+            ])).map((item, idx) => (
+              <div key={idx} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                <span style={{ fontWeight: 700, color: "#18181b" }}>{item.label}</span>
+                <span style={{ color: "#6b7280", marginLeft: "4px" }}>{item.desc}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -575,42 +625,22 @@ function Step1RepositoryOverview({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "8px",
           }}
         >
-          <span>Explore Architecture →</span>
+          <span>Continue to Step 02: Architecture Explorer →</span>
         </button>
 
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Overview reviewed" : "Mark overview reviewed"}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Step 01 as Complete</span>
+          </label>
         </div>
       </div>
     </div>
@@ -621,15 +651,21 @@ function Step1RepositoryOverview({
  * STEP 02 — ARCHITECTURE EXPLORER
  * ========================================================================================= */
 function Step2ArchitectureExplorer({
+  architectureData,
+  liveRepo,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
 }) {
   const [activeSubTab, setActiveSubTab] = useState<"architecture" | "folders" | "components">("architecture");
+  const components = architectureData?.components || [];
+  const connections = architectureData?.connections || [];
 
   return (
     <div>
@@ -643,7 +679,7 @@ function Step2ArchitectureExplorer({
         Architecture Explorer
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        Explore the folder structure, important files, entry points, components and connections between modules.
+        Explore components, connections between modules, folder structure and verified entry points.
       </p>
 
       <div
@@ -683,108 +719,68 @@ function Step2ArchitectureExplorer({
         </div>
 
         {activeSubTab === "architecture" && (
-          <>
-            {/* Visual Architecture Diagram */}
-            <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "14px" }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "10px" }}>
-                {/* Client Box */}
-                <div style={{ padding: "7px 18px", backgroundColor: "#ffffff", border: "1.5px solid #27272a", borderRadius: "6px", fontSize: "12px", fontWeight: 700 }}>
-                  Client (React)
-                </div>
-
-                <div style={{ color: "#9ca3af", fontSize: "12px" }}>↓</div>
-
-                {/* API Box (Highlighted) */}
-                <div style={{ display: "flex", alignItems: "center", gap: "8px", width: "100%", justifyContent: "center" }}>
-                  <div style={{ padding: "6px 10px", backgroundColor: "#ffffff", border: "1.5px solid #d1d5db", borderRadius: "6px", fontSize: "11px", textAlign: "center", maxWidth: "90px" }}>
-                    External Payment Provider
-                  </div>
-                  <div style={{ color: "#9ca3af" }}>→</div>
-                  <div style={{ padding: "10px 20px", backgroundColor: "#fef3c7", border: "2px solid #f59e0b", borderRadius: "8px", fontSize: "13px", fontWeight: 800, color: "#18181b", textAlign: "center" }}>
-                    API (FastAPI)
-                  </div>
-                  <div style={{ color: "#9ca3af" }}>→</div>
-                  <div style={{ padding: "6px 10px", backgroundColor: "#ffffff", border: "1.5px solid #d1d5db", borderRadius: "6px", fontSize: "11px", textAlign: "center", maxWidth: "90px" }}>
-                    Database (PostgreSQL)
-                  </div>
-                </div>
-
-                <div style={{ color: "#9ca3af", fontSize: "12px" }}>↓</div>
-
-                {/* Workers and Cache */}
-                <div style={{ display: "flex", gap: "12px" }}>
-                  <div style={{ padding: "6px 14px", backgroundColor: "#ffffff", border: "1.5px solid #27272a", borderRadius: "6px", fontSize: "11.5px", fontWeight: 700 }}>
-                    Workers (Celery)
-                  </div>
-                  <div style={{ padding: "6px 14px", backgroundColor: "#ffffff", border: "1.5px solid #27272a", borderRadius: "6px", fontSize: "11.5px", fontWeight: 700 }}>
-                    Redis (Cache)
-                  </div>
-                </div>
-              </div>
+          <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "14px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "10px" }}>
+              System Components &amp; Topology ({components.length} identified)
             </div>
-
-            {/* Selected Component Card */}
-            <div style={{ backgroundColor: "#ffffff", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-                <span style={{ fontSize: "14px" }}>⚙</span>
-                <span style={{ fontWeight: 800, fontSize: "13.5px", color: "#111827" }}>
-                  Selected Component: API (FastAPI)
-                </span>
-              </div>
-              <p style={{ fontSize: "12px", color: "#4b5563", margin: "0 0 10px 0", lineHeight: 1.4 }}>
-                Handles HTTP requests, business logic and integrates with external services.
-              </p>
-
-              <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-                Key Files
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "11.5px", marginBottom: "10px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", color: "#2563eb", fontFamily: "ui-monospace, monospace" }}>
-                  <span>src/api/main.py</span>
-                  <span style={{ cursor: "pointer", color: "#6b7280" }}>View ↗</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", color: "#2563eb", fontFamily: "ui-monospace, monospace" }}>
-                  <span>src/api/routes.py</span>
-                  <span style={{ cursor: "pointer", color: "#6b7280" }}>View ↗</span>
-                </div>
-              </div>
-
-              <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-                Dependencies
-              </div>
-              <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                {["fastapi", "sqlalchemy", "pydantic"].map((d) => (
-                  <span key={d} style={{ padding: "2px 8px", backgroundColor: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: "4px", fontSize: "11px", fontFamily: "ui-monospace, monospace" }}>
-                    {d}
-                  </span>
+            {components.length > 0 ? (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", justifyContent: "center" }}>
+                {components.map((comp) => (
+                  <div key={comp.id} style={{ padding: "8px 14px", backgroundColor: "#ffffff", border: "1.5px solid #27272a", borderRadius: "8px", textAlign: "center", minWidth: "120px" }}>
+                    <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#18181b" }}>{comp.name}</div>
+                    <div style={{ fontSize: "10.5px", color: "#6b7280", marginTop: "2px" }}>{comp.description}</div>
+                  </div>
                 ))}
               </div>
-            </div>
-          </>
+            ) : (
+              <div style={{ color: "#6b7280", fontSize: "12px" }}>
+                Analysis facts not loaded yet. Click Analyze Repository on the main screen to generate architecture facts.
+              </div>
+            )}
+
+            {connections.length > 0 && (
+              <div style={{ marginTop: "12px", borderTop: "1px solid #e5e0d8", paddingTop: "8px" }}>
+                <div style={{ fontSize: "10.5px", fontWeight: 700, color: "#6b7280", marginBottom: "6px" }}>DATA FLOW &amp; CONNECTIONS</div>
+                {connections.map((c, idx) => (
+                  <div key={idx} style={{ fontSize: "11.5px", color: "#374151", padding: "2px 0" }}>
+                    <span style={{ fontWeight: 700 }}>{c.from}</span> → <span style={{ fontWeight: 700 }}>{c.to}</span> <span style={{ color: "#6b7280" }}>({c.relationship})</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {activeSubTab === "folders" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px" }}>
-            <div style={{ padding: "8px", backgroundColor: "#faf7f2", borderRadius: "6px", border: "1px solid #e5e0d8" }}>
-              <strong>src/</strong> — Core backend codebase, routers, services, schemas
+          <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "14px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "10px" }}>
+              Important Repository Files
             </div>
-            <div style={{ padding: "8px", backgroundColor: "#faf7f2", borderRadius: "6px", border: "1px solid #e5e0d8" }}>
-              <strong>src/api/</strong> — FastAPI HTTP endpoints and dependency injection
-            </div>
-            <div style={{ padding: "8px", backgroundColor: "#faf7f2", borderRadius: "6px", border: "1px solid #e5e0d8" }}>
-              <strong>tests/</strong> — Unit and integration test suites
-            </div>
+            {(liveRepo?.topFiles || []).map((file) => (
+              <div key={file.path} style={{ padding: "4px 0", fontSize: "12px", fontFamily: "ui-monospace, monospace", color: "#2563eb" }}>
+                {file.path}
+              </div>
+            ))}
           </div>
         )}
 
         {activeSubTab === "components" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px" }}>
-            <div style={{ padding: "8px", backgroundColor: "#faf7f2", borderRadius: "6px", border: "1px solid #e5e0d8" }}>
-              <strong>API Gateway</strong> — Routes and authenticates requests
-            </div>
-            <div style={{ padding: "8px", backgroundColor: "#faf7f2", borderRadius: "6px", border: "1px solid #e5e0d8" }}>
-              <strong>Payment Engine</strong> — Handles Stripe transaction workflows
-            </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {components.map((c) => (
+              <div key={c.id} style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "10px" }}>
+                <div style={{ fontWeight: 800, fontSize: "13px", color: "#111827" }}>{c.name}</div>
+                <div style={{ fontSize: "11.5px", color: "#4b5563", marginTop: "2px" }}>{c.description}</div>
+                {c.files && c.files.length > 0 && (
+                  <div style={{ marginTop: "6px", display: "flex", flexWrap: "wrap", gap: "4px" }}>
+                    {c.files.map((f) => (
+                      <span key={f} style={{ padding: "2px 6px", backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "10px", fontFamily: "ui-monospace, monospace" }}>
+                        {f}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
@@ -806,42 +802,22 @@ function Step2ArchitectureExplorer({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "8px",
           }}
         >
-          <span>Explore a Code Flow →</span>
+          <span>Continue to Step 03: Code Flow Explorer →</span>
         </button>
 
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Architecture explored" : "Mark architecture explored"}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Step 02 as Complete</span>
+          </label>
         </div>
       </div>
     </div>
@@ -852,23 +828,36 @@ function Step2ArchitectureExplorer({
  * STEP 03 — CODE FLOW EXPLORER
  * ========================================================================================= */
 function Step3CodeFlowExplorer({
+  architectureData,
+  liveRepo,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
 }) {
-  const [selectedFlow, setSelectedFlow] = useState("payment_processing");
-
-  const flows = [
-    { num: 1, title: "API Endpoint", target: "POST /payments", file: "src/api/routes.py:45-78" },
-    { num: 2, title: "Service Layer", target: "process_payment()", file: "src/services/payment_service.py:120-200" },
-    { num: 3, title: "Database", target: "create_transaction()", file: "src/db/transactions.py:50-90" },
-    { num: 4, title: "External Provider", target: "Payment Gateway (Stripe)", file: "src/integrations/stripe.py:30-80" },
-    { num: 5, title: "Response", target: "Payment created", file: "src/api/routes.py:210-220" },
-  ];
+  const entryPoints = architectureData?.entry_points || [];
+  const flows = entryPoints.length > 0
+    ? entryPoints.map((ep, idx) => ({
+        num: idx + 1,
+        title: `Entry Point: ${ep.file.split("/").pop() || ep.file}`,
+        target: ep.reason,
+        file: ep.file,
+      }))
+    : (liveRepo?.topFiles && liveRepo.topFiles.length > 0 ? (
+        liveRepo.topFiles.slice(0, 4).map((f, idx) => ({
+          num: idx + 1,
+          title: `File: ${f.name}`,
+          target: "Top repository file",
+          file: f.path,
+        }))
+      ) : [
+        { num: 1, title: "Main Entry", target: "Application entry", file: "main" }
+      ]);
 
   return (
     <div>
@@ -883,7 +872,7 @@ function Step3CodeFlowExplorer({
         Code Flow Explorer
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        Trace an existing feature through relevant files, functions and data flow.
+        Trace verified execution entry points and component flows across the codebase.
       </p>
 
       <div
@@ -898,84 +887,36 @@ function Step3CodeFlowExplorer({
           gap: "14px",
         }}
       >
-        {/* Flow selector dropdown */}
-        <div>
-          <label style={{ fontSize: "11px", fontWeight: 800, color: "#4b5563", textTransform: "uppercase", display: "block", marginBottom: "5px" }}>
-            Select a flow
-          </label>
-          <select
-            value={selectedFlow}
-            onChange={(e) => setSelectedFlow(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              borderRadius: "6px",
-              border: "1.5px solid #27272a",
-              backgroundColor: "#ffffff",
-              fontSize: "12.5px",
-              fontWeight: 700,
-              outline: "none",
-            }}
-          >
-            <option value="payment_processing">Payment Processing (create payment)</option>
-            <option value="webhook_ingestion">Webhook Ingestion (Stripe)</option>
-            <option value="refund_flow">Refund Transaction Flow</option>
-          </select>
-        </div>
-
-        {/* 5-step numbered flow list */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           {flows.map((f) => (
             <div key={f.num} style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
               <div
                 style={{
-                  width: "22px",
-                  height: "22px",
+                  width: "24px",
+                  height: "24px",
                   borderRadius: "50%",
-                  backgroundColor: "#f59e0b",
-                  color: "#000000",
+                  backgroundColor: "#fef3c7",
+                  border: "1.5px solid #f59e0b",
+                  color: "#92400e",
+                  fontWeight: 800,
+                  fontSize: "12px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  fontSize: "11px",
-                  fontWeight: 800,
                   flexShrink: 0,
-                  marginTop: "2px",
                 }}
               >
                 {f.num}
               </div>
-              <div style={{ flex: 1, backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "6px", padding: "7px 10px" }}>
-                <div style={{ fontSize: "12px", fontWeight: 800, color: "#111827" }}>{f.title}</div>
-                <div style={{ fontSize: "11.5px", fontFamily: "ui-monospace, monospace", color: "#2563eb", marginTop: "1px" }}>
-                  {f.target}
-                </div>
-                <div style={{ fontSize: "10.5px", color: "#6b7280", marginTop: "2px", fontFamily: "ui-monospace, monospace" }}>
-                  {f.file}
-                </div>
+              <div style={{ flex: 1, backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "10px 12px" }}>
+                <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#111827" }}>{f.title}</div>
+                <div style={{ fontSize: "11.5px", color: "#4b5563", marginTop: "2px" }}>{f.target}</div>
+                <div style={{ fontSize: "10.5px", color: "#2563eb", fontFamily: "ui-monospace, monospace", marginTop: "4px" }}>{f.file}</div>
               </div>
             </div>
           ))}
         </div>
 
-        {/* View Source Code card */}
-        <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "10px 12px" }}>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#111827", marginBottom: "4px" }}>
-            View Source Code
-          </div>
-          <div style={{ fontSize: "11.5px", color: "#4b5563", lineHeight: 1.4 }}>
-            Selected function: <code style={{ color: "#2563eb" }}>process_payment()</code>
-            <br />
-            <span style={{ fontSize: "10.5px", color: "#6b7280" }}>src/services/payment.py:120-200</span>
-          </div>
-          <div style={{ marginTop: "6px" }}>
-            <span style={{ fontSize: "11px", color: "#2563eb", cursor: "pointer", fontWeight: 600 }}>
-              View on GitHub ↗
-            </span>
-          </div>
-        </div>
-
-        {/* Action Button */}
         <button
           type="button"
           onClick={onNext}
@@ -993,42 +934,22 @@ function Step3CodeFlowExplorer({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "8px",
           }}
         >
-          <span>Locate Important Code →</span>
+          <span>Continue to Step 04: Important Code Finder →</span>
         </button>
 
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Code flow explored" : "Mark code flow explored"}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Step 03 as Complete</span>
+          </label>
         </div>
       </div>
     </div>
@@ -1039,25 +960,57 @@ function Step3CodeFlowExplorer({
  * STEP 04 — IMPORTANT CODE FINDER
  * ========================================================================================= */
 function Step4ImportantCodeFinder({
+  architectureData,
+  liveRepo,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
 }) {
-  const [searchTerm, setSearchTerm] = useState("payment");
-  const [activeFilter, setActiveFilter] = useState("all");
-  const [selectedResult, setSelectedResult] = useState("process_payment");
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const results = [
-    { id: "process_payment", name: "process_payment()", file: "src/services/payment.py:120-200" },
-    { id: "PaymentService", name: "PaymentService", file: "src/services/payment_service.py:12-48" },
-    { id: "routes_payments", name: "/payments", file: "src/api/routes.py:45-78" },
-    { id: "payment_model", name: "payment.py", file: "src/models/payment.py:1-120" },
-    { id: "get_payment_status", name: "get_payment_status()", file: "src/services/payment.py:210-250" },
+  const candidateItems = [
+    ...(architectureData?.entry_points || []).map((ep) => ({
+      id: ep.file,
+      name: ep.file.split("/").pop() || ep.file,
+      file: ep.file,
+      desc: ep.reason,
+    })),
+    ...(architectureData?.components || []).flatMap((c) =>
+      (c.files || []).map((f) => ({
+        id: f,
+        name: f.split("/").pop() || f,
+        file: f,
+        desc: `Component: ${c.name}`,
+      }))
+    ),
+    ...(liveRepo?.topFiles || []).map((f) => ({
+      id: f.path,
+      name: f.name,
+      file: f.path,
+      desc: "Top file",
+    })),
   ];
+
+  // De-duplicate by id
+  const seen = new Set<string>();
+  const allItems = candidateItems.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+
+  const filtered = allItems.filter(
+    (item) =>
+      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.file.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.desc.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div>
@@ -1072,7 +1025,7 @@ function Step4ImportantCodeFinder({
         Important Code Finder
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        Find important functions, classes, features and API endpoints with links to their source files.
+        Quickly locate key functions, files, entry points and components in this repository.
       </p>
 
       <div
@@ -1087,150 +1040,34 @@ function Step4ImportantCodeFinder({
           gap: "14px",
         }}
       >
-        {/* Search bar */}
-        <div style={{ position: "relative" }}>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search symbols..."
-            style={{
-              width: "100%",
-              padding: "8px 28px 8px 30px",
-              borderRadius: "6px",
-              border: "1.5px solid #27272a",
-              fontSize: "12.5px",
-              boxSizing: "border-box",
-              outline: "none",
-            }}
-          />
-          <span style={{ position: "absolute", left: "9px", top: "9px", color: "#9ca3af", display: "flex" }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <circle cx="11" cy="11" r="8" />
-              <line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-          </span>
-          {searchTerm && (
-            <span
-              onClick={() => setSearchTerm("")}
-              style={{ position: "absolute", right: "9px", top: "7px", color: "#9ca3af", cursor: "pointer", fontSize: "13px" }}
-            >
-              ✕
-            </span>
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="Search by file or component name..."
+          style={{
+            padding: "8px 12px",
+            borderRadius: "6px",
+            border: "1.5px solid #27272a",
+            fontSize: "12.5px",
+            outline: "none",
+          }}
+        />
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxHeight: "240px", overflowY: "auto" }}>
+          {filtered.length > 0 ? (
+            filtered.map((item) => (
+              <div key={item.id} style={{ padding: "8px 10px", backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "6px" }}>
+                <div style={{ fontWeight: 800, fontSize: "12.5px", color: "#18181b" }}>{item.name}</div>
+                <div style={{ fontSize: "11px", color: "#4b5563" }}>{item.desc}</div>
+                <div style={{ fontSize: "10.5px", color: "#2563eb", fontFamily: "ui-monospace, monospace" }}>{item.file}</div>
+              </div>
+            ))
+          ) : (
+            <div style={{ color: "#6b7280", fontSize: "12px", padding: "8px" }}>No matching code files found.</div>
           )}
         </div>
 
-        {/* Filter pills */}
-        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-          {["All", "Functions", "Classes", "Endpoints", "Files"].map((f) => {
-            const isA = activeFilter.toLowerCase() === f.toLowerCase();
-            return (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setActiveFilter(f.toLowerCase())}
-                style={{
-                  padding: "3px 10px",
-                  borderRadius: "12px",
-                  border: isA ? "1px solid #f59e0b" : "1px solid #e5e7eb",
-                  backgroundColor: isA ? "#fef3c7" : "#f9fafb",
-                  color: isA ? "#92400e" : "#4b5563",
-                  fontSize: "11px",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                }}
-              >
-                {f}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Results List */}
-        <div>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-            Search Results (8)
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
-            {results.map((r) => {
-              const isSelected = selectedResult === r.id;
-              return (
-                <div
-                  key={r.id}
-                  onClick={() => setSelectedResult(r.id)}
-                  style={{
-                    padding: "7px 10px",
-                    borderRadius: "6px",
-                    border: isSelected ? "1.5px solid #f59e0b" : "1px solid #e5e0d8",
-                    backgroundColor: isSelected ? "#fef3c7" : "#ffffff",
-                    cursor: "pointer",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                  }}
-                >
-                  <div style={{ fontFamily: "ui-monospace, monospace", fontSize: "11.5px", fontWeight: 700, color: "#111827" }}>
-                    {r.name}
-                  </div>
-                  <div style={{ fontSize: "10.5px", color: "#6b7280" }}>{r.file}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Detail preview for process_payment */}
-        <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
-          <div style={{ fontFamily: "ui-monospace, monospace", fontWeight: 800, fontSize: "13px", color: "#111827" }}>
-            process_payment()
-          </div>
-          <div style={{ fontSize: "10.5px", color: "#6b7280", marginBottom: "6px" }}>
-            src/services/payment.py:120-200
-          </div>
-          <div style={{ fontSize: "11.5px", color: "#4b5563", marginBottom: "8px" }}>
-            Handles payment processing logic and calls external provider.
-          </div>
-
-          <div
-            style={{
-              backgroundColor: "#18181b",
-              color: "#e5e7eb",
-              padding: "10px",
-              borderRadius: "6px",
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "11px",
-              lineHeight: 1.45,
-              marginBottom: "10px",
-            }}
-          >
-            <span style={{ color: "#f59e0b" }}>def</span> process_payment(
-            <br />
-            &nbsp;&nbsp;amount: float,
-            <br />
-            &nbsp;&nbsp;currency: str,
-            <br />
-            &nbsp;&nbsp;payment_method: str
-            <br />
-            ) -&gt; PaymentResponse:
-          </div>
-
-          <button
-            type="button"
-            style={{
-              padding: "6px 12px",
-              backgroundColor: "#ffffff",
-              border: "1.5px solid #27272a",
-              borderRadius: "6px",
-              fontSize: "11.5px",
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            View on GitHub
-          </button>
-        </div>
-
-        {/* Action Button */}
         <button
           type="button"
           onClick={onNext}
@@ -1248,42 +1085,22 @@ function Step4ImportantCodeFinder({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "8px",
           }}
         >
-          <span>Explore Dependencies →</span>
+          <span>Continue to Step 05: Dependencies &amp; Impact →</span>
         </button>
 
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Source code explored" : "Mark source code explored"}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Step 04 as Complete</span>
+          </label>
         </div>
       </div>
     </div>
@@ -1294,14 +1111,20 @@ function Step4ImportantCodeFinder({
  * STEP 05 — DEPENDENCIES & IMPACT
  * ========================================================================================= */
 function Step5DependenciesImpact({
+  architectureData,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
+  architectureData?: ArchitectureBundle | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
 }) {
+  const technologies = architectureData?.technologies || [];
+  const connections = architectureData?.connections || [];
+  const components = architectureData?.components || [];
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
@@ -1315,7 +1138,7 @@ function Step5DependenciesImpact({
         Dependencies &amp; Impact
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        Identify connected files, function callers, related tests, and the potential impact of changing a component.
+        Identify dependencies, evidence files, and caller relationships between modules.
       </p>
 
       <div
@@ -1330,87 +1153,43 @@ function Step5DependenciesImpact({
           gap: "14px",
         }}
       >
-        {/* Selected Component Header */}
-        <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "10px 12px" }}>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "3px" }}>
-            Selected Component
-          </div>
-          <div style={{ fontWeight: 800, fontSize: "14px", color: "#111827", fontFamily: "ui-monospace, monospace" }}>
-            process_payment()
-          </div>
-          <div style={{ fontSize: "11px", color: "#6b7280" }}>src/services/payment.py:120-200</div>
-        </div>
-
-        {/* 3 Metric Cards */}
+        {/* Metric Cards */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-          <div style={{ backgroundColor: "#ffffff", border: "1.5px solid #27272a", borderRadius: "8px", padding: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#6b7280", fontWeight: 600 }}>Callers</div>
-            <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginTop: "2px" }}>4</div>
+          <div style={{ backgroundColor: "#faf7f2", border: "1.5px solid #27272a", borderRadius: "8px", padding: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#6b7280", fontWeight: 600 }}>Connections</div>
+            <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginTop: "2px" }}>{connections.length}</div>
           </div>
-          <div style={{ backgroundColor: "#ffffff", border: "1.5px solid #27272a", borderRadius: "8px", padding: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#6b7280", fontWeight: 600 }}>Dependencies</div>
-            <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginTop: "2px" }}>6</div>
+          <div style={{ backgroundColor: "#faf7f2", border: "1.5px solid #27272a", borderRadius: "8px", padding: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#6b7280", fontWeight: 600 }}>Technologies</div>
+            <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginTop: "2px" }}>{technologies.length}</div>
           </div>
-          <div style={{ backgroundColor: "#ffffff", border: "1.5px solid #27272a", borderRadius: "8px", padding: "8px", textAlign: "center" }}>
-            <div style={{ fontSize: "11px", color: "#6b7280", fontWeight: 600 }}>Related Tests</div>
-            <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginTop: "2px" }}>3</div>
+          <div style={{ backgroundColor: "#faf7f2", border: "1.5px solid #27272a", borderRadius: "8px", padding: "8px", textAlign: "center" }}>
+            <div style={{ fontSize: "11px", color: "#6b7280", fontWeight: 600 }}>Components</div>
+            <div style={{ fontSize: "18px", fontWeight: 800, color: "#111827", marginTop: "2px" }}>{components.length}</div>
           </div>
         </div>
 
-        {/* Related Files & Callers */}
-        <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "8px" }}>
-            Related Files &amp; Callers
+        {/* Technologies List */}
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "8px" }}>
+            Analyzed Technologies &amp; Evidence Files
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11.5px" }}>
-              <span style={{ fontFamily: "ui-monospace, monospace", color: "#2563eb", fontWeight: 600 }}>src/api/routes.py</span>
-              <span style={{ padding: "1px 6px", backgroundColor: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "10.5px" }}>Caller</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11.5px" }}>
-              <span style={{ fontFamily: "ui-monospace, monospace", color: "#2563eb", fontWeight: 600 }}>src/services/refund.py</span>
-              <span style={{ padding: "1px 6px", backgroundColor: "#f3f4f6", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "10.5px" }}>Caller</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "11.5px" }}>
-              <span style={{ fontFamily: "ui-monospace, monospace", color: "#2563eb", fontWeight: 600 }}>tests/test_payment.py</span>
-              <span style={{ padding: "1px 6px", backgroundColor: "#dbeafe", border: "1px solid #bfdbfe", borderRadius: "4px", fontSize: "10.5px", color: "#1e40af" }}>Related Test</span>
-            </div>
+            {technologies.map((t) => (
+              <div key={t.name} style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "6px", padding: "8px 10px" }}>
+                <div style={{ fontWeight: 800, fontSize: "12px", color: "#111827" }}>
+                  {t.name} {t.category ? <span style={{ color: "#6b7280", fontWeight: 500 }}>({t.category})</span> : null}
+                </div>
+                {t.evidence_files && t.evidence_files.length > 0 && (
+                  <div style={{ fontSize: "10.5px", color: "#2563eb", fontFamily: "ui-monospace, monospace", marginTop: "2px" }}>
+                    Evidence: {t.evidence_files.join(", ")}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
-        {/* Visual Dependency Graph */}
-        <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "8px" }}>
-            Dependency Graph
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "6px" }}>
-            <div style={{ padding: "4px 10px", backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "11px" }}>
-              api/routes.py
-            </div>
-            <div style={{ color: "#9ca3af", fontSize: "11px" }}>↓</div>
-            <div style={{ padding: "6px 14px", backgroundColor: "#fef3c7", border: "1.5px solid #f59e0b", borderRadius: "6px", fontSize: "11.5px", fontWeight: 800 }}>
-              process_payment()
-            </div>
-            <div style={{ color: "#9ca3af", fontSize: "11px" }}>↓</div>
-            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", justifyContent: "center" }}>
-              <span style={{ padding: "3px 7px", backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "10.5px" }}>payment_service.py</span>
-              <span style={{ padding: "3px 7px", backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "10.5px" }}>stripe.py</span>
-              <span style={{ padding: "3px 7px", backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "10.5px" }}>db.py</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Potential Impact warning box */}
-        <div style={{ backgroundColor: "#fef3c7", border: "1.5px solid #f59e0b", borderRadius: "8px", padding: "10px 12px" }}>
-          <div style={{ fontWeight: 800, fontSize: "12px", color: "#92400e", marginBottom: "2px" }}>
-            Potential Change Impact
-          </div>
-          <div style={{ fontSize: "11.5px", color: "#78350f", lineHeight: 1.4 }}>
-            Changes to this function may affect 3 other modules and 2 tests.
-          </div>
-        </div>
-
-        {/* Action Button */}
         <button
           type="button"
           onClick={onNext}
@@ -1428,42 +1207,22 @@ function Step5DependenciesImpact({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "8px",
           }}
         >
-          <span>View Setup &amp; Testing →</span>
+          <span>Continue to Step 06: Setup &amp; Testing Guide →</span>
         </button>
 
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Dependencies explored" : "Mark dependencies explored"}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Step 05 as Complete</span>
+          </label>
         </div>
       </div>
     </div>
@@ -1474,21 +1233,23 @@ function Step5DependenciesImpact({
  * STEP 06 — SETUP & TESTING GUIDE
  * ========================================================================================= */
 function Step6SetupTestingGuide({
+  architectureData,
+  liveRepo,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
+  architectureData?: ArchitectureBundle | null;
+  liveRepo?: LiveRepoSnapshot | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
 }) {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
-  const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard?.writeText(text);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(null), 1500);
-  };
+  const primaryLang =
+    liveRepo?.metadata?.primaryLanguage ||
+    architectureData?.overview?.primary_language ||
+    "Repository";
+  const setupSteps = architectureData?.contributor_guide?.setup_steps || [];
 
   return (
     <div>
@@ -1503,7 +1264,7 @@ function Step6SetupTestingGuide({
         Setup &amp; Testing Guide
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        Review setup instructions, dependencies, environment requirements, run commands and available tests.
+        Instructions and environment setup for running and testing this project.
       </p>
 
       <div
@@ -1518,148 +1279,30 @@ function Step6SetupTestingGuide({
           gap: "14px",
         }}
       >
-        {/* Prerequisites */}
         <div>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-            Prerequisites
+          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>
+            Primary Stack
           </div>
-          <div style={{ fontSize: "12px", color: "#374151", lineHeight: 1.5 }}>
-            <div>• Python 3.11+</div>
-            <div>• Docker (optional)</div>
-            <div>• Git</div>
+          <div style={{ fontSize: "12.5px", fontWeight: 700, color: "#111827" }}>
+            {primaryLang}
           </div>
         </div>
 
-        {/* Install Dependencies */}
-        <div>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-            Install Dependencies
+        {setupSteps.length > 0 && (
+          <div>
+            <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", textTransform: "uppercase", marginBottom: "6px" }}>
+              Setup Steps
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {setupSteps.map((s, idx) => (
+                <div key={idx} style={{ padding: "6px 10px", backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "6px", fontSize: "12px" }}>
+                  <span style={{ fontWeight: 700, marginRight: "6px" }}>{idx + 1}.</span> {s}
+                </div>
+              ))}
+            </div>
           </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              backgroundColor: "#18181b",
-              color: "#f3f4f6",
-              padding: "8px 12px",
-              borderRadius: "6px",
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "11.5px",
-            }}
-          >
-            <span>$ pip install -r requirements.txt</span>
-            <button
-              type="button"
-              onClick={() => copyToClipboard("pip install -r requirements.txt", "deps")}
-              style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: "11px" }}
-            >
-              {copiedKey === "deps" ? "✓" : "Copy"}
-            </button>
-          </div>
-        </div>
+        )}
 
-        {/* Environment Configuration */}
-        <div>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-            Environment Configuration
-          </div>
-          <div style={{ fontSize: "11.5px", color: "#4b5563", marginBottom: "4px" }}>
-            Create a <code style={{ color: "#2563eb" }}>.env</code> file with the following variables:
-          </div>
-          <div
-            style={{
-              backgroundColor: "#18181b",
-              color: "#f3f4f6",
-              padding: "8px 12px",
-              borderRadius: "6px",
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "11px",
-              lineHeight: 1.45,
-            }}
-          >
-            DATABASE_URL=postgresql://user:pass@localhost:5432/db
-            <br />
-            STRIPE_SECRET_KEY=sk_test_...
-            <br />
-            ENV=development
-          </div>
-        </div>
-
-        {/* Run Application */}
-        <div>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-            Run the Application
-          </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              backgroundColor: "#18181b",
-              color: "#f3f4f6",
-              padding: "8px 12px",
-              borderRadius: "6px",
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "11.5px",
-            }}
-          >
-            <span>$ uvicorn src.api.main:app --reload</span>
-            <button
-              type="button"
-              onClick={() => copyToClipboard("uvicorn src.api.main:app --reload", "run")}
-              style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: "11px" }}
-            >
-              {copiedKey === "run" ? "✓" : "Copy"}
-            </button>
-          </div>
-        </div>
-
-        {/* Run Tests */}
-        <div>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-            Run Tests
-          </div>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              backgroundColor: "#18181b",
-              color: "#f3f4f6",
-              padding: "8px 12px",
-              borderRadius: "6px",
-              fontFamily: "ui-monospace, monospace",
-              fontSize: "11.5px",
-            }}
-          >
-            <span>$ pytest tests/</span>
-            <button
-              type="button"
-              onClick={() => copyToClipboard("pytest tests/", "test")}
-              style={{ background: "none", border: "none", color: "#9ca3af", cursor: "pointer", fontSize: "11px" }}
-            >
-              {copiedKey === "test" ? "✓" : "Copy"}
-            </button>
-          </div>
-        </div>
-
-        {/* Related Files */}
-        <div>
-          <div style={{ fontSize: "11px", fontWeight: 800, color: "#6b7280", letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: "6px" }}>
-            Related Files
-          </div>
-          <div style={{ display: "flex", gap: "8px" }}>
-            <span style={{ padding: "4px 8px", backgroundColor: "#faf7f2", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "11px", fontFamily: "ui-monospace, monospace" }}>
-              README.md
-            </span>
-            <span style={{ padding: "4px 8px", backgroundColor: "#faf7f2", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "11px", fontFamily: "ui-monospace, monospace" }}>
-              docker-compose.yml ↗
-            </span>
-          </div>
-        </div>
-
-        {/* Action Button */}
         <button
           type="button"
           onClick={onNext}
@@ -1677,42 +1320,22 @@ function Step6SetupTestingGuide({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "8px",
           }}
         >
-          <span>Review Available Work →</span>
+          <span>Continue to Step 07: Available Engineering Work →</span>
         </button>
 
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Setup and tests explored" : "Mark setup and tests explored"}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Step 06 as Complete</span>
+          </label>
         </div>
       </div>
     </div>
@@ -1723,14 +1346,24 @@ function Step6SetupTestingGuide({
  * STEP 07 — AVAILABLE ENGINEERING WORK
  * ========================================================================================= */
 function Step7AvailableEngineeringWork({
+  companyContext,
+  architectureData,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
+  companyContext?: { items: any[]; errors: any[] } | null;
+  architectureData?: ArchitectureBundle | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
 }) {
+  const items = companyContext?.items || [];
+  const jiraItems = items.filter((i) => i.source_type === "jira");
+  const confluenceItems = items.filter((i) => i.source_type === "confluence");
+  const slackItems = items.filter((i) => i.source_type === "slack");
+  const errors = companyContext?.errors || [];
+
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
@@ -1744,7 +1377,7 @@ function Step7AvailableEngineeringWork({
         Available Engineering Work
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        Review unresolved or ongoing work from connected tools.
+        Review verified issues, specifications, and team discussions linked to this repository.
       </p>
 
       <div
@@ -1759,82 +1392,86 @@ function Step7AvailableEngineeringWork({
           gap: "14px",
         }}
       >
-        {/* Jira Card */}
+        {errors.length > 0 && (
+          <div style={{ padding: "8px 12px", backgroundColor: "#fee2e2", border: "1px solid #fca5a5", borderRadius: "6px", fontSize: "11.5px", color: "#991b1b" }}>
+            {errors.map((e, idx) => (
+              <div key={idx}>• {e.source_type.toUpperCase()}: {e.message}</div>
+            ))}
+          </div>
+        )}
+
+        {/* Jira */}
         <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontWeight: 800, fontSize: "13px", color: "#111827" }}>Jira</span>
-              <span style={{ fontSize: "10.5px", color: "#6b7280" }}>• 2 pending issues</span>
-            </div>
-            <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#15803d", backgroundColor: "#dcfce7", padding: "1px 6px", borderRadius: "8px" }}>
-              Connected
+            <span style={{ fontWeight: 800, fontSize: "13px", color: "#111827" }}>
+              Jira ({jiraItems.length} issues)
             </span>
           </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11.5px", padding: "4px 0", borderBottom: "1px solid #f3f4f6" }}>
-              <div>
-                <span style={{ fontWeight: 700, color: "#2563eb", marginRight: "6px" }}>PAY-312</span>
-                <span>Fix payment webhook failures</span>
-              </div>
-              <span style={{ padding: "1px 6px", backgroundColor: "#fef3c7", color: "#92400e", borderRadius: "4px", fontSize: "10px", fontWeight: 700 }}>
-                In Progress
-              </span>
+          {jiraItems.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {jiraItems.map((item, idx) => (
+                <div key={idx} style={{ fontSize: "11.5px", padding: "4px 0", borderBottom: "1px solid #f3f4f6" }}>
+                  <a href={item.url} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: "#2563eb", textDecoration: "none" }}>
+                    {item.title}
+                  </a>
+                  {item.metadata?.status && (
+                    <span style={{ marginLeft: "8px", padding: "1px 6px", backgroundColor: "#fef3c7", color: "#92400e", borderRadius: "4px", fontSize: "10px", fontWeight: 700 }}>
+                      {item.metadata.status}
+                    </span>
+                  )}
+                </div>
+              ))}
             </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11.5px", padding: "4px 0" }}>
-              <div>
-                <span style={{ fontWeight: 700, color: "#2563eb", marginRight: "6px" }}>PAY-289</span>
-                <span>Improve error handling in service</span>
-              </div>
-              <span style={{ padding: "1px 6px", backgroundColor: "#f3f4f6", color: "#4b5563", borderRadius: "4px", fontSize: "10px", fontWeight: 700 }}>
-                To Do
-              </span>
-            </div>
-          </div>
+          ) : (
+            <div style={{ color: "#6b7280", fontSize: "11.5px" }}>No linked Jira issues found for this repository.</div>
+          )}
         </div>
 
-        {/* Slack Card */}
+        {/* Confluence */}
         <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontWeight: 800, fontSize: "13px", color: "#111827" }}>Slack</span>
-              <span style={{ fontSize: "10.5px", color: "#6b7280" }}>• 3 relevant messages</span>
-            </div>
-            <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#15803d", backgroundColor: "#dcfce7", padding: "1px 6px", borderRadius: "8px" }}>
-              Connected
+            <span style={{ fontWeight: 800, fontSize: "13px", color: "#111827" }}>
+              Confluence ({confluenceItems.length} pages)
             </span>
           </div>
-          <div style={{ fontSize: "11.5px", color: "#374151" }}>
-            <span style={{ fontWeight: 700, color: "#2563eb", marginRight: "6px" }}>#backend</span>
-            <span>Payment service latency increase</span>
-            <span style={{ fontSize: "10.5px", color: "#9ca3af", marginLeft: "6px" }}>2h ago</span>
-          </div>
+          {confluenceItems.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {confluenceItems.map((item, idx) => (
+                <div key={idx} style={{ fontSize: "11.5px" }}>
+                  <a href={item.url} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: "#2563eb", textDecoration: "none" }}>
+                    {item.title}
+                  </a>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: "#6b7280", fontSize: "11.5px" }}>No linked Confluence documentation found.</div>
+          )}
         </div>
 
-        {/* Confluence Card */}
+        {/* Slack */}
         <div style={{ backgroundColor: "#faf7f2", border: "1px solid #e5e0d8", borderRadius: "8px", padding: "12px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ fontWeight: 800, fontSize: "13px", color: "#111827" }}>Confluence</span>
-              <span style={{ fontSize: "10.5px", color: "#6b7280" }}>• 1 relevant page</span>
-            </div>
-            <span style={{ fontSize: "10.5px", fontWeight: 700, color: "#15803d", backgroundColor: "#dcfce7", padding: "1px 6px", borderRadius: "8px" }}>
-              Connected
+            <span style={{ fontWeight: 800, fontSize: "13px", color: "#111827" }}>
+              Slack ({slackItems.length} messages)
             </span>
           </div>
-          <div style={{ fontSize: "11.5px" }}>
-            <div style={{ fontWeight: 700, color: "#111827" }}>Payment Service Documentation</div>
-            <div style={{ color: "#6b7280", fontSize: "11px" }}>Architecture, APIs and runbooks • Updated 1d ago</div>
-          </div>
+          {slackItems.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              {slackItems.map((item, idx) => (
+                <div key={idx} style={{ fontSize: "11.5px", color: "#374151" }}>
+                  <a href={item.url} target="_blank" rel="noreferrer" style={{ fontWeight: 700, color: "#2563eb", textDecoration: "none", marginRight: "6px" }}>
+                    {item.title}
+                  </a>
+                  <span>{item.content}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ color: "#6b7280", fontSize: "11.5px" }}>No relevant Slack discussions found.</div>
+          )}
         </div>
 
-        {/* Notice */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", color: "#6b7280" }}>
-          <span>ⓘ</span>
-          <span>All sources are connected and showing the latest relevant information.</span>
-        </div>
-
-        {/* Action Button */}
         <button
           type="button"
           onClick={onNext}
@@ -1852,42 +1489,22 @@ function Step7AvailableEngineeringWork({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: "6px",
+            gap: "8px",
           }}
         >
-          <span>Review Onboarding Guide →</span>
+          <span>Continue to Step 08: Your Onboarding Guide →</span>
         </button>
 
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
-          }}
-        >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Work explored" : "Mark work explored"}</span>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Step 07 as Complete</span>
+          </label>
         </div>
       </div>
     </div>
@@ -1900,12 +1517,18 @@ function Step7AvailableEngineeringWork({
 function Step8YourOnboardingGuide({
   repoOwner,
   repoName,
+  liveRepo,
+  architectureData,
+  companyContext,
   isCompleted,
   onToggleComplete,
   onNext,
 }: {
   repoOwner: string;
   repoName: string;
+  liveRepo?: LiveRepoSnapshot | null;
+  architectureData?: ArchitectureBundle | null;
+  companyContext?: { items: any[]; errors: any[] } | null;
   isCompleted: boolean;
   onToggleComplete: () => void;
   onNext: () => void;
@@ -1913,13 +1536,39 @@ function Step8YourOnboardingGuide({
   const [expandedSection, setExpandedSection] = useState<string | null>("repo_summary");
 
   const sections = [
-    { id: "repo_summary", title: "Repository Summary", desc: `${repoOwner} / ${repoName} — Payment processing and transaction management service.` },
-    { id: "arch", title: "Architecture Overview", desc: "System architecture, modules and data flow." },
-    { id: "code_flow", title: "Important Code Flows", desc: "Payment processing flow, refund flow." },
-    { id: "important_code", title: "Important Files & Functions", desc: "Key files, classes and API endpoints." },
-    { id: "deps", title: "Dependencies & Related Tests", desc: "Dependencies, callers and test cases." },
-    { id: "setup", title: "Setup & Testing Instructions", desc: "Requirements, commands and environment config." },
-    { id: "pending_work", title: "Pending Work (Jira / Slack / Confluence)", desc: "2 Jira issues • 3 Slack messages • 1 Confluence page" },
+    {
+      id: "repo_summary",
+      title: "Repository Summary",
+      desc: `${repoOwner} / ${repoName} — ${liveRepo?.metadata?.description || architectureData?.overview?.summary || "Repository overview and structure."}`,
+    },
+    {
+      id: "arch",
+      title: "Architecture Overview",
+      desc: architectureData?.components?.length
+        ? `${architectureData.components.length} components analyzed: ${architectureData.components.map((c) => c.name).join(", ")}`
+        : "System architecture and data flow.",
+    },
+    {
+      id: "code_flow",
+      title: "Important Code Flows",
+      desc: architectureData?.entry_points?.length
+        ? `${architectureData.entry_points.length} entry points verified.`
+        : "Key execution paths and entry files.",
+    },
+    {
+      id: "deps",
+      title: "Dependencies & Caller Impact",
+      desc: architectureData?.technologies?.length
+        ? `${architectureData.technologies.length} technologies detected: ${architectureData.technologies.map((t) => t.name).join(", ")}`
+        : "Dependencies and callers.",
+    },
+    {
+      id: "pending_work",
+      title: "Pending Work (Jira / Slack / Confluence)",
+      desc: companyContext?.items?.length
+        ? `${companyContext.items.length} work items linked to this repository.`
+        : "Linked issues and documentation.",
+    },
   ];
 
   return (
@@ -1935,7 +1584,7 @@ function Step8YourOnboardingGuide({
         Your Onboarding Guide
       </h1>
       <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 16px 0", lineHeight: 1.45 }}>
-        A consolidated guide with everything you need to get started.
+        A consolidated summary with live verified facts to guide your day one development.
       </p>
 
       <div
@@ -1950,7 +1599,6 @@ function Step8YourOnboardingGuide({
           gap: "14px",
         }}
       >
-        {/* Accordions */}
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {sections.map((sec) => {
             const isExp = expandedSection === sec.id;
@@ -1958,30 +1606,29 @@ function Step8YourOnboardingGuide({
               <div
                 key={sec.id}
                 style={{
-                  border: "1px solid #e5e0d8",
+                  border: "1.5px solid #27272a",
                   borderRadius: "8px",
                   overflow: "hidden",
-                  backgroundColor: isExp ? "#faf7f2" : "#ffffff",
                 }}
               >
                 <div
                   onClick={() => setExpandedSection(isExp ? null : sec.id)}
                   style={{
-                    padding: "10px 12px",
+                    padding: "10px 14px",
+                    backgroundColor: isExp ? "#fef3c7" : "#faf7f2",
                     display: "flex",
-                    justifyContent: "space-between",
                     alignItems: "center",
+                    justifyContent: "space-between",
                     cursor: "pointer",
                     fontWeight: 700,
                     fontSize: "12.5px",
-                    color: "#111827",
                   }}
                 >
                   <span>{sec.title}</span>
-                  <span style={{ color: "#9ca3af", fontSize: "11px" }}>{isExp ? "▲" : "▼"}</span>
+                  <span>{isExp ? "▲" : "▼"}</span>
                 </div>
                 {isExp && (
-                  <div style={{ padding: "0 12px 10px 12px", fontSize: "12px", color: "#4b5563", lineHeight: 1.45 }}>
+                  <div style={{ padding: "12px 14px", backgroundColor: "#ffffff", fontSize: "12px", color: "#374151", lineHeight: 1.5 }}>
                     {sec.desc}
                   </div>
                 )}
@@ -1990,89 +1637,39 @@ function Step8YourOnboardingGuide({
           })}
         </div>
 
-        {/* 3 Action Buttons */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
-          <button
-            type="button"
-            onClick={onNext}
-            style={{
-              padding: "10px 6px",
-              backgroundColor: "#f79f24",
-              color: "#18181b",
-              border: "1.5px solid #000000",
-              borderRadius: "6px",
-              fontWeight: 800,
-              fontSize: "11px",
-              cursor: "pointer",
-              textAlign: "center",
-            }}
-          >
-            Generate Guide
-          </button>
-          <button
-            type="button"
-            style={{
-              padding: "10px 6px",
-              backgroundColor: "#ffffff",
-              color: "#18181b",
-              border: "1.5px solid #27272a",
-              borderRadius: "6px",
-              fontWeight: 700,
-              fontSize: "11px",
-              cursor: "pointer",
-              textAlign: "center",
-            }}
-          >
-            Open Full Guide
-          </button>
-          <button
-            type="button"
-            style={{
-              padding: "10px 6px",
-              backgroundColor: "#ffffff",
-              color: "#18181b",
-              border: "1.5px solid #27272a",
-              borderRadius: "6px",
-              fontWeight: 700,
-              fontSize: "11px",
-              cursor: "pointer",
-              textAlign: "center",
-            }}
-          >
-            Copy Summary
-          </button>
-        </div>
-
-        {/* Mark Reviewed Checkbox */}
-        <div
-          onClick={onToggleComplete}
+        <button
+          type="button"
+          onClick={onNext}
           style={{
+            width: "100%",
+            padding: "12px 16px",
+            backgroundColor: "#f79f24",
+            color: "#18181b",
+            border: "2px solid #000000",
+            borderRadius: "8px",
+            boxShadow: "2px 2px 0px #000000",
+            fontWeight: 800,
+            fontSize: "13.5px",
+            cursor: "pointer",
             display: "flex",
             alignItems: "center",
+            justifyContent: "center",
             gap: "8px",
-            fontSize: "12px",
-            color: isCompleted ? "#15803d" : "#4b5563",
-            cursor: "pointer",
-            fontWeight: isCompleted ? 700 : 500,
           }}
         >
-          <span
-            style={{
-              width: "14px",
-              height: "14px",
-              borderRadius: "50%",
-              border: isCompleted ? "none" : "1.5px solid #6b7280",
-              backgroundColor: isCompleted ? "#16a34a" : "transparent",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "#ffffff",
-              fontSize: "10px",
-            }}
-          >
-            {isCompleted && "✓"}
-          </span>
-          <span>{isCompleted ? "Guide reviewed" : "Mark guide reviewed"}</span>
+          <span>Return to Onboarding Roadmap Overview</span>
+        </button>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "4px" }}>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "12px", fontWeight: 700, color: "#374151", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={isCompleted}
+              onChange={onToggleComplete}
+              style={{ width: "15px", height: "15px", accentColor: "#f79f24" }}
+            />
+            <span>Mark Onboarding Journey Complete</span>
+          </label>
         </div>
       </div>
     </div>
