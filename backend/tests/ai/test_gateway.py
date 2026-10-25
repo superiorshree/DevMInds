@@ -198,7 +198,9 @@ class TestAIService:
         ) as ollama_cls,  patch("app.ai.OllamaProvider", ollama_cls), patch(
             "app.ai.gateway.ExternalLLMProvider"
         ) as ext_cls:
-            ext_cls.return_value.generate = AsyncMock(return_value="public answer")
+            ext_cls.return_value.generate = AsyncMock(
+                return_value='{"answer": "public answer", "source_ids": []}'
+            )
             answer = await get_ai_service().answer(
                 "q", _Repo("public"), [], mode="open_source"
             )
@@ -217,7 +219,9 @@ class TestAIService:
         ) as ollama_cls, patch("app.ai.OllamaProvider", ollama_cls), patch(
             "app.ai.gateway.ExternalLLMProvider"
         ) as ext_cls:
-            ollama_cls.return_value.generate = AsyncMock(return_value="ollama answer")
+            ollama_cls.return_value.generate = AsyncMock(
+                return_value='{"answer": "ollama answer", "source_ids": []}'
+            )
             answer = await get_ai_service().answer(
                 "q", _Repo("public"), [_CompanyItem()], mode="company"
             )
