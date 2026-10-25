@@ -29,7 +29,6 @@ import { detectRepoFromTabs } from "./services/repoDetector";
 import { ModeSwitcher } from "./components/ModeSwitcher";
 import { RepositoryHeader } from "./components/RepositoryHeader";
 import { SignInView } from "./components/SignInView";
-import { OpenSourceSignInView } from "./components/OpenSourceSignInView";
 import { OpenSourceWelcomeView } from "./components/OpenSourceWelcomeView";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { ArchitectureTab } from "./tabs/ArchitectureTab";
@@ -137,7 +136,6 @@ export default function App() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [signingInMode, setSigningInMode] = useState<UserMode | null>(null);
-  const [signedOutStep, setSignedOutStep] = useState<"choose_mode" | "open_source_signin">("choose_mode");
   const [signInError, setSignInError] = useState<string | null>(null);
   // Bumped by the "Retry" button to re-check the session after a backend outage.
   const [sessionCheck, setSessionCheck] = useState(0);
@@ -213,8 +211,9 @@ export default function App() {
     }
   }, [modeInfo, activeTab]);
 
-  /** Start the GitHub OAuth flow through the backend for the chosen mode. */
-  async function handleSignIn(selectedMode: UserMode): Promise<void> {
+  /** Start the GitHub OAuth flow through the backend (always open_source mode). */
+  async function handleSignIn(): Promise<void> {
+    const selectedMode: UserMode = "open_source";
     setIsSigningIn(true);
     setSigningInMode(selectedMode);
     setSignInError(null);
@@ -238,7 +237,6 @@ export default function App() {
 
   /** Log out locally and server-side; a dead backend still clears the token. */
   async function handleSignOut(): Promise<void> {
-    setSignedOutStep("choose_mode");
     try {
       await signOut();
       setSession({ status: "signed_out" });
@@ -279,29 +277,10 @@ export default function App() {
 
   /* ---------------- Sign in ---------------- */
   if (session.status === "signed_out") {
-    if (signedOutStep === "open_source_signin") {
-      return (
-        <OpenSourceSignInView
-          onSignIn={() => handleSignIn("open_source")}
-          isSigningIn={isSigningIn}
-          error={signInError}
-          onChangeMode={() => setSignedOutStep("choose_mode")}
-        />
-      );
-    }
-
     return (
       <SignInView
-        onSelectMode={(mode) => {
-          if (mode === "open_source") {
-            setSignedOutStep("open_source_signin");
-          } else {
-            void handleSignIn("company");
-          }
-        }}
-        onSignIn={handleSignIn}
+        onSignIn={() => handleSignIn()}
         isSigningIn={isSigningIn}
-        signingInMode={signingInMode}
         error={signInError}
       />
     );
