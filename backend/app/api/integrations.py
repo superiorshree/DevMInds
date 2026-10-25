@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.modes import CurrentUser, UserMode, mode_has_feature, require_feature
 from app.core.security import get_current_user
+from app.integrations.health import integration_health
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -42,30 +43,52 @@ def _require_provider_access(provider: str, user: CurrentUser) -> None:
 
 
 @router.get("")
-def list_integrations(user: CurrentUser = Depends(get_current_user)) -> dict[str, list[dict[str, object]]]:
-    """List providers with availability + connection status.
+async def list_integrations(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, list[dict[str, object]]]:
+    """List integrations with real connection status."""
 
-    TODO(Kunal): query each adapter's check_connection() for real status.
-    """
     providers = [
         ("github", ""),
         ("jira", "jira"),
         ("confluence", "confluence"),
         ("slack", "slackShare"),
     ]
+
+    # Never query company services for users without company access.
+    is_company = user.mode == UserMode.company
+
+    health = await integration_health() if is_company else {}
+
     out = []
+
     for name, feature in providers:
         available = not feature or mode_has_feature(user.mode, feature)
-        out.append(
-            {
-                "provider": name,
-                "available": available,
-                "connected": False,
-                "detail": "" if available else f"Requires feature '{feature}'",
-            }
-        )
-    return {"providers": out}
 
+        provider_health = health.get(name, "NOT_CONNECTED")
+
+        connected = (
+            available
+            and name != "github"
+            and provider_health == "connected"
+        )
+
+        out.append({
+            "provider": name,
+            "available": available,
+            "connected": connected,
+            "detail": (
+                provider_health
+                if available and name != "github"
+                else (
+                    "Connection status not implemented"
+                    if available
+                    else f"Requires feature '{feature}'"
+                )
+            ),
+        })
+
+    return {"providers": out}
 
 @router.post("/{provider}/connect")
 def connect_provider(provider: str, user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:

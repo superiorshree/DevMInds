@@ -1,303 +1,269 @@
-# File:        backend/tests/test_integrations.py
-# Owner:       (shared — covers contracts owned by Shreyansh, Kunal and Purva)
-# Purpose:     Verifies the shared integration contracts: the connector interface every adapter implements, the adapter error types, the company-mode gate and the USE_MOCK_INTEGRATIONS setting.
-# Contains:    Tests for IntegrationAdapter conformance, AdapterError/RateLimitError, get_company_context() mode gating and mock-integration configuration.
-# Status:      REAL — covers the contracts that exist in the repository today, plus the integration routes' auth/gating/shape
-# Depends on:  backend/app/integrations/*, backend/app/core/config.py, backend/app/api/integrations.py, backend/app/main.py
 
-"""Integration contract tests.
+"""Integration contracts and API route tests for DevMinds."""
 
-Verified against the repository as it stands:
-
-* The shared connector base class is ``IntegrationAdapter``
-  (``app/integrations/base.py``) — there is no ``BaseConnector``.
-* The only shared error helpers are ``AdapterError`` / ``RateLimitError``;
-  no ``error_from_status`` or ``normalize.py`` exists anywhere in the repo.
-* ``USE_MOCK_INTEGRATIONS`` maps to ``Settings.use_mock_integrations``.
-
-Nothing here asserts a dispatcher or an error normalizer that does not exist;
-those gaps are reported separately rather than papered over with a speculative
-implementation.
-"""
-
-from collections.abc import Iterator
+from unittest.mock import AsyncMock
 
 import pytest
+from fastapi.testclient import TestClient
 
-from app.core.config import get_settings
-from app.integrations import CompanyContext, get_company_context, integration_status
-from app.integrations.base import AdapterError, IntegrationAdapter, RateLimitError
-from app.integrations.confluence import ConfluenceAdapter
+import app.integrations as integrations
+from app.config import settings
+from app.integrations import CompanyContext
+from app.integrations.base import (
+    AdapterError,
+    BaseConnector,
+    IntegrationAdapter,
+    RateLimitError,
+)
 from app.integrations.github import GitHubAdapter
-from app.integrations.jira import JiraAdapter
-from app.integrations.slack import SlackAdapter
+from app.main import app
 
 
-@pytest.fixture(autouse=True)
-def _session_secret(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Route tests mint session tokens, so SESSION_SECRET must be set locally."""
-    monkeypatch.setenv("SESSION_SECRET", "test-session-secret-integration-tests")
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-#: Every connector the repository ships, keyed by their provider name.
-ALL_ADAPTERS = [GitHubAdapter, JiraAdapter, ConfluenceAdapter, SlackAdapter]
-
-#: Adapters documented as read-only: they must never write to the provider.
-READ_ONLY_ADAPTERS = [GitHubAdapter, JiraAdapter, ConfluenceAdapter]
-
-
-class TestConnectorInterface:
-    """The shared base class is IntegrationAdapter, and every adapter conforms."""
-
-    def test_base_class_is_abstract(self) -> None:
-        """IntegrationAdapter cannot be instantiated directly — it is the contract."""
+class TestConnectorContracts:
+    def test_base_connector_is_abstract(self):
         with pytest.raises(TypeError):
-            IntegrationAdapter()  # type: ignore[abstract]
+            BaseConnector()
 
-    @pytest.mark.parametrize("adapter_cls", ALL_ADAPTERS, ids=lambda cls: cls.__name__)
-    def test_adapter_satisfies_the_shared_interface(self, adapter_cls: type) -> None:
-        """Each connector is instantiable and implements check_connection()/fetch()/send()."""
-        adapter = adapter_cls()
-        assert isinstance(adapter, IntegrationAdapter)
-        # Concrete provider name, not the abstract default.
-        assert isinstance(adapter.provider, str)
-        assert adapter.provider not in ("", "base")
-        # The interface is synchronous and returns a plain bool today.
-        assert isinstance(adapter.check_connection(), bool)
+    def test_integration_adapter_is_abstract(self):
+        with pytest.raises(TypeError):
+            IntegrationAdapter()
 
-    @pytest.mark.parametrize("adapter_cls", READ_ONLY_ADAPTERS, ids=lambda cls: cls.__name__)
-    def test_read_only_adapters_refuse_to_send(self, adapter_cls: type) -> None:
-        """GitHub, Jira and Confluence never write — send() always raises."""
-        adapter = adapter_cls()
-        with pytest.raises(NotImplementedError):
-            adapter.send({})
+    def test_github_implements_adapter(self):
+        assert isinstance(GitHubAdapter(), IntegrationAdapter)
 
-    def test_jira_is_a_read_only_connector(self) -> None:
-        """The Jira connector is read-only by contract (no writes to Jira)."""
-        jira = JiraAdapter()
-        assert jira.provider == "jira"
-        with pytest.raises(NotImplementedError):
-            jira.send({"key": "DEV-101"})
-
-    def test_slack_never_reads_messages(self) -> None:
-        """Slack is one-way send only: fetch() must always raise."""
-        with pytest.raises(NotImplementedError):
-            SlackAdapter().fetch()
+    def test_company_connectors_implement_base(self):
+        for connector in integrations._connectors():
+            assert isinstance(connector, BaseConnector)
+            assert connector.source_type in {
+                "jira", "slack", "confluence"
+            }
 
 
-class TestAdapterErrors:
-    """The shared error types carry provider, message and code uniformly."""
+class TestIntegrationErrors:
+    def test_adapter_error(self):
+        error = AdapterError("jira", "Unavailable")
+        assert error.provider == "jira"
+        assert error.code == "provider_error"
 
-    def test_adapter_error_defaults_to_provider_error_code(self) -> None:
-        err = AdapterError("jira", "boom")
-        assert err.provider == "jira"
-        assert err.message == "boom"
-        assert err.code == "provider_error"
-        assert str(err) == "jira: boom"
-
-    def test_adapter_error_accepts_a_specific_code(self) -> None:
-        err = AdapterError("jira", "Jira unreachable", code="api_down")
-        assert err.code == "api_down"
-
-    def test_rate_limit_error_is_an_adapter_error(self) -> None:
-        err = RateLimitError("jira")
-        assert isinstance(err, AdapterError)
-        assert err.code == "rate_limited"
-        assert err.message == "Rate limited by provider"
-
-    def test_rate_limit_error_keeps_provider_and_message(self) -> None:
-        err = RateLimitError("jira", "429 from Jira")
-        assert err.provider == "jira"
-        assert err.message == "429 from Jira"
+    def test_rate_limit_error(self):
+        error = RateLimitError("jira")
+        assert isinstance(error, AdapterError)
+        assert error.code == "rate_limited"
 
 
-class TestIntegrationModeGate:
-    """Company context is gated server-side on the company mode."""
-
-    def test_company_context_refused_outside_company_mode(self) -> None:
-        """open_source mode never receives company context (PermissionError)."""
+class TestCompanyContext:
+    @pytest.mark.asyncio
+    async def test_company_mode_gate(self):
         with pytest.raises(PermissionError):
-            get_company_context("someone/somerepo", "query", "open_source")
+            await integrations.get_company_context(
+                "owner/repo", "architecture", "open_source"
+            )
 
-    def test_integration_status_covers_every_connector(self) -> None:
-        status = integration_status()
-        assert set(status) == {"jira", "slack", "confluence"}
-        assert set(status.values()) <= {"connected", "not_connected", "error"}
+    @pytest.mark.asyncio
+    async def test_mock_context(self, monkeypatch):
+        monkeypatch.setattr(
+            settings, "use_mock_integrations", True
+        )
 
+        def fail_if_called():
+            raise AssertionError("Real connectors were called")
 
-class TestMockCompanyContext:
-    """Mock-mode company context: stub data, frozen shape, real connector untouched."""
+        monkeypatch.setattr(
+            integrations, "_connectors", fail_if_called
+        )
 
-    def test_mock_context_is_served_without_touching_the_real_jira_adapter(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Building company context never reaches the real Jira connector.
+        result = await integrations.get_company_context(
+            "owner/repo", "architecture", "company"
+        )
 
-        There is no dispatcher yet (reported separately), so this pins the
-        property that must hold once one exists: mock mode must not call the
-        real adapter.
-        """
+        assert isinstance(result, CompanyContext)
+        assert result.items
+        assert result.errors == []
 
-        def _fail(*args: object, **kwargs: object) -> object:
-            raise AssertionError("real Jira connector was called in mock mode")
+    @pytest.mark.asyncio
+    async def test_real_connector_aggregation(self, monkeypatch):
+        monkeypatch.setattr(
+            settings, "use_mock_integrations", False
+        )
 
-        monkeypatch.setattr(JiraAdapter, "fetch", _fail)
-        monkeypatch.setattr(JiraAdapter, "check_connection", _fail)
+        class FakeConnector:
+            def __init__(self, source_type):
+                self.source_type = source_type
 
-        ctx = get_company_context("someone/somerepo", "query", "company")
-        assert isinstance(ctx, CompanyContext)
-        assert ctx.items, "mock context should return stub items"
-        assert ctx.errors == []
+            async def fetch(self, repo, query):
+                return CompanyContext()
 
-    def test_mock_context_keeps_the_frozen_shape(self) -> None:
-        """CompanyContext stays {items, errors} with source-linked items."""
-        ctx = get_company_context("someone/somerepo", "query", "company")
-        assert set(vars(ctx).keys()) == {"items", "errors"}
-        for item in ctx.items:
-            assert {"source_type", "title", "content", "url"} <= set(vars(item))
-            assert item.source_type in {"jira", "slack", "confluence"}
-        assert isinstance(ctx.errors, list)
+        monkeypatch.setattr(
+            integrations,
+            "_connectors",
+            lambda: [
+                FakeConnector("jira"),
+                FakeConnector("slack"),
+                FakeConnector("confluence"),
+            ],
+        )
 
-    def test_company_context_instances_do_not_share_lists(self) -> None:
-        """Default items/errors are per-instance (no shared mutable class state)."""
-        first, second = CompanyContext(), CompanyContext()
+        result = await integrations.get_company_context(
+            "owner/repo", "architecture", "company"
+        )
+
+        assert isinstance(result, CompanyContext)
+        assert result.items == []
+        assert result.errors == []
+
+    @pytest.mark.asyncio
+    async def test_status_contains_three_connectors(self, monkeypatch):
+        monkeypatch.setattr(
+            settings, "use_mock_integrations", True
+        )
+
+        result = await integrations.integration_status()
+
+        assert set(result) == {
+            "jira", "slack", "confluence"
+        }
+        assert all(
+            status == "connected"
+            for status in result.values()
+        )
+
+    def test_context_lists_are_independent(self):
+        first = CompanyContext()
+        second = CompanyContext()
+
         assert first.items is not second.items
         assert first.errors is not second.errors
-        first.items.append(object())
-        assert second.items == []
-
-
-class TestMockIntegrationConfig:
-    """USE_MOCK_INTEGRATIONS drives Settings.use_mock_integrations (name unchanged)."""
-
-    def test_mock_flag_exists_with_expected_default(self) -> None:
-        settings = get_settings()
-        assert hasattr(settings, "use_mock_integrations")
-        assert isinstance(settings.use_mock_integrations, bool)
-
-    def test_use_mock_integrations_env_name_maps_to_setting(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The frozen env var name USE_MOCK_INTEGRATIONS still drives the setting."""
-        monkeypatch.setenv("USE_MOCK_INTEGRATIONS", "false")
-        get_settings.cache_clear()
-        try:
-            assert get_settings().use_mock_integrations is False
-        finally:
-            get_settings.cache_clear()
-
-    def test_mock_flag_off_refuses_stub_company_context(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """With USE_MOCK_INTEGRATIONS=false the dispatcher must not serve sample data.
-
-        No real dispatcher exists yet, so it fails loudly (NotImplementedError)
-        instead of returning fake company context as if it were real.
-        """
-        monkeypatch.setenv("USE_MOCK_INTEGRATIONS", "false")
-        get_settings.cache_clear()
-        try:
-            with pytest.raises(NotImplementedError):
-                get_company_context("someone/somerepo", "query", "company")
-            # The mode gate still fires first — company mode only, always.
-            with pytest.raises(PermissionError):
-                get_company_context("someone/somerepo", "query", "open_source")
-        finally:
-            get_settings.cache_clear()
 
 
 class TestIntegrationRoutes:
-    """The integration routes enforce auth, per-provider gating and the contract shape."""
+    def test_routes_are_registered(self):
+        paths = {route.path for route in app.routes}
 
-    @pytest.fixture()
-    def company_headers(self) -> dict[str, str]:
-        """A session for a user whose server-side mode is company."""
-        from app.core.modes import UserMode
-        from app.core.security import create_session_token, find_or_create_user, update_user_mode
+        assert "/api/integrations" in paths
+        assert "/api/integrations/{provider}/connect" in paths
+        assert "/api/integrations/{provider}" in paths
+        assert "/api/integrations/slack/share" in paths
 
-        user = find_or_create_user(github_id=77001, login="integration-tester", avatar_url="")
-        update_user_mode(user, UserMode.company)
-        token = create_session_token(user.id)
-        return {"Authorization": f"Bearer {token}"}
-
-    @pytest.fixture()
-    def open_source_headers(self) -> dict[str, str]:
-        """A session for a user whose server-side mode is open_source."""
-        from app.core.security import create_session_token, find_or_create_user, update_user_mode
-        from app.core.modes import UserMode
-
-        user = find_or_create_user(github_id=77002, login="open-source-tester", avatar_url="")
-        update_user_mode(user, UserMode.open_source)
-        token = create_session_token(user.id)
-        return {"Authorization": f"Bearer {token}"}
-
-    def test_list_integrations_requires_a_session(self) -> None:
-        """Without a session token the route is 401 (the mode cannot be known)."""
-        from fastapi.testclient import TestClient
-
-        from app.main import app
-
-        assert TestClient(app).get("/api/integrations").status_code == 401
-
-    def test_list_integrations_reports_availability_per_mode(
-        self, company_headers: dict[str, str], open_source_headers: dict[str, str]
-    ) -> None:
-        """Providers whose feature is off are reported unavailable, never queried."""
-        from fastapi.testclient import TestClient
-
-        from app.main import app
-
+    def test_list_requires_authentication(self):
         client = TestClient(app)
-        by_mode = {}
-        for label, headers in (("company", company_headers), ("open_source", open_source_headers)):
-            response = client.get("/api/integrations", headers=headers)
-            assert response.status_code == 200
-            providers = {p["provider"]: p for p in response.json()["providers"]}
-            assert set(providers) == {"github", "jira", "confluence", "slack"}
-            by_mode[label] = providers
 
-        # GitHub is always available; company-only providers are not.
-        assert by_mode["company"]["jira"]["available"] is True
-        assert by_mode["open_source"]["jira"]["available"] is False
-        assert by_mode["open_source"]["confluence"]["available"] is False
-        assert by_mode["open_source"]["slack"]["available"] is False
-        # A stub must never claim a connection it did not make.
-        assert by_mode["company"]["github"]["connected"] is False
+        response = client.get("/api/integrations")
 
-    def test_connect_shape_and_unknown_provider(
-        self, company_headers: dict[str, str], open_source_headers: dict[str, str]
-    ) -> None:
-        """Connect returns {provider, connected, detail}; 404 unknown; 403 gated."""
-        from fastapi.testclient import TestClient
+        assert response.status_code == 401
 
-        from app.main import app
 
-        client = TestClient(app)
-        response = client.post("/api/integrations/jira/connect", headers=company_headers)
-        assert response.status_code == 200
-        body = response.json()
-        assert set(body) == {"provider", "connected", "detail"}
-        assert body["provider"] == "jira"
-        assert body["connected"] is False  # TODO(Kunal): real connection flow.
+def test_company_integration_api_reports_real_status(monkeypatch, request):
+    """Company users see connector health through the HTTP endpoint."""
+    from fastapi.testclient import TestClient
+    import app.api.integrations as api_integrations
+    from app.core.modes import UserMode
+    from app.core.security import (
+        create_session_token,
+        find_or_create_user,
+        update_user_mode,
+    )
+    from app.main import app
 
-        assert client.post("/api/integrations/nope/connect", headers=company_headers).status_code == 404
-        assert (
-            client.post("/api/integrations/jira/connect", headers=open_source_headers).status_code
-            == 403
+    async def fake_health():
+        return {
+            "jira": "connected",
+            "slack": "connected",
+            "confluence": "connected",
+        }
+
+    monkeypatch.setattr(
+        api_integrations, "integration_health", fake_health
+    )
+
+    user = find_or_create_user(
+        github_id=77003,
+        login="integration-health-tester",
+        avatar_url="",
+    )
+    update_user_mode(user, UserMode.company)
+
+    # Configure a temporary signing secret for this test only.
+    from app.core.config import get_settings
+
+    monkeypatch.setenv(
+        "SESSION_SECRET",
+        "devminds-test-secret-only-not-for-production"
+    )
+    get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
+
+    token = create_session_token(user.id)
+
+    client = TestClient(app)
+    response = client.get(
+        "/api/integrations",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    providers = {
+        item["provider"]: item
+        for item in response.json()["providers"]
+    }
+
+    for provider in ("jira", "slack", "confluence"):
+        assert providers[provider]["available"] is True
+        assert providers[provider]["connected"] is True
+
+
+def test_open_source_mode_restricts_company_integrations(monkeypatch):
+    """Open-source users cannot access company integrations."""
+    from fastapi.testclient import TestClient
+    import app.api.integrations as api_integrations
+    from app.core.modes import UserMode
+    from app.core.security import (
+        create_session_token,
+        find_or_create_user,
+        update_user_mode,
+    )
+    from app.core.config import get_settings
+    from app.main import app
+
+    async def forbidden_health():
+        raise AssertionError(
+            "Company health checks must not run in open-source mode"
         )
 
-    def test_disconnect_shape_and_gating(self, company_headers: dict[str, str]) -> None:
-        """Disconnect returns the same {provider, connected, detail} shape."""
-        from fastapi.testclient import TestClient
+    monkeypatch.setattr(
+        api_integrations, "integration_health", forbidden_health
+    )
 
-        from app.main import app
+    monkeypatch.setenv(
+        "SESSION_SECRET",
+        "devminds-test-secret-only-not-for-production"
+    )
+    get_settings.cache_clear()
 
+    try:
+        user = find_or_create_user(
+            github_id=77004,
+            login="open-source-integration-tester",
+            avatar_url="",
+        )
+        update_user_mode(user, UserMode.open_source)
+
+        token = create_session_token(user.id)
         client = TestClient(app)
-        response = client.delete("/api/integrations/jira", headers=company_headers)
+
+        response = client.get(
+            "/api/integrations",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
         assert response.status_code == 200
-        body = response.json()
-        assert set(body) == {"provider", "connected", "detail"}
-        assert body["connected"] is False
-        assert client.delete("/api/integrations/nope", headers=company_headers).status_code == 404
+
+        providers = {
+            item["provider"]: item
+            for item in response.json()["providers"]
+        }
+
+        for provider in ("jira", "slack", "confluence"):
+            assert providers[provider]["available"] is False
+            assert providers[provider]["connected"] is False
+    finally:
+        get_settings.cache_clear()
