@@ -148,12 +148,20 @@ function extractToken(redirectUrl: string): string | null {
  * store the session token it hands back. Returns the signed-in user.
  */
 export async function signIn(): Promise<SessionUser> {
-  if (typeof chrome === "undefined" || !chrome.identity?.launchWebAuthFlow) {
+  if (
+    typeof chrome === "undefined" ||
+    !chrome.identity?.launchWebAuthFlow ||
+    !chrome.identity?.getRedirectURL
+  ) {
     throw new Error("Sign-in can only run inside the Chrome extension.");
   }
 
+  const redirectUri = chrome.identity.getRedirectURL("provide_cb.html");
+  const authUrl = new URL(`${API_BASE_URL}/api/auth/github`);
+  authUrl.searchParams.set("redirect_uri", redirectUri);
+
   const redirectUrl = await chrome.identity.launchWebAuthFlow({
-    url: `${API_BASE_URL}/api/auth/github`,
+    url: authUrl.toString(),
     interactive: true,
   });
   if (!redirectUrl) {

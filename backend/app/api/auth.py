@@ -12,12 +12,14 @@ do) is enforced per-route by require_feature() in core/modes.py.
 """
 
 import hashlib
+import json
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import gettempdir
 from typing import Annotated
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
@@ -60,6 +62,83 @@ _STATE_SUFFIX = ".state"
 _pending_states: dict[str, datetime] = {}
 
 
+def validate_extension_redirect_uri(redirect_uri: str | None = None) -> str:
+    """Validate and normalize the extension redirect URI.
+
+    Only accepts HTTPS URLs targeting <extension_id>.chromiumapp.org with
+    an allowed extension ID and an expected callback path (/provide_cb.html or /provider_cb.html).
+    Falls back to settings.extension_redirect_uri if redirect_uri is omitted.
+    Raises HTTPException(400) if the URI is invalid, disallowed, or missing.
+    """
+    settings = get_settings()
+    target_uri = (redirect_uri or "").strip()
+    if not target_uri:
+        target_uri = (settings.extension_redirect_uri or "").strip()
+    if not target_uri:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Extension redirect URI is required",
+        )
+
+    try:
+        parsed = urlsplit(target_uri)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URI",
+        )
+
+    if parsed.scheme != "https":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URI: scheme must be https",
+        )
+
+    # Rejects credentials (user:pass@) and ports (host:port)
+    if not parsed.netloc or not parsed.hostname or parsed.netloc != parsed.hostname:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URI host",
+        )
+
+    hostname = parsed.hostname.lower()
+    suffix = ".chromiumapp.org"
+    if not hostname.endswith(suffix):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URI domain: must be chromiumapp.org",
+        )
+
+    extension_id = hostname[: -len(suffix)]
+    if not extension_id or not re.match(r"^[a-z0-9_-]+$", extension_id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid extension ID in redirect URI",
+        )
+
+    # Path check: provide_cb.html (standard) or provider_cb.html (legacy)
+    if parsed.path not in ("/provide_cb.html", "/provider_cb.html"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid redirect URI path",
+        )
+
+    if parsed.query or parsed.fragment:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Redirect URI must not contain query parameters or fragment",
+        )
+
+    allowed_ids = settings.allowed_extension_ids_set
+    if extension_id not in allowed_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Extension ID '{extension_id}' is not in the allowlist",
+        )
+
+    return f"https://{hostname}{parsed.path}"
+
+
 def _state_path(state: str) -> Path:
     """Return the store file for a state (SHA-256 name — traversal-proof)."""
     digest = hashlib.sha256(state.encode("utf-8")).hexdigest()
@@ -73,10 +152,16 @@ def _prune_state_files(now: datetime) -> None:
             text = path.read_text(encoding="utf-8")
         except OSError:
             continue
+        expired = True
         try:
-            expired = now > datetime.fromisoformat(text)
-        except ValueError:
-            expired = True  # unreadable/corrupt entry -> garbage-collect it.
+            data = json.loads(text)
+            if isinstance(data, dict) and "expires_at" in data:
+                expired = now > datetime.fromisoformat(data["expires_at"])
+        except Exception:
+            try:
+                expired = now > datetime.fromisoformat(text.strip())
+            except Exception:
+                expired = True
         if expired:
             try:
                 path.unlink()
@@ -91,8 +176,8 @@ def _prune_state_files(now: datetime) -> None:
             pass
 
 
-def _create_state() -> str:
-    """Generate a fresh OAuth state, prune expired ones, remember the new one.
+def _create_state(redirect_uri: str) -> str:
+    """Generate a fresh OAuth state bound to the validated redirect URI.
 
     The state is published as a file first (atomic rename), so it is visible to
     whichever process ends up serving the callback — including after a restart.
@@ -108,18 +193,22 @@ def _create_state() -> str:
     expires_at = now + STATE_TTL
     path = _state_path(state)
     tmp = _STATE_DIR / f"{path.name}.{secrets.token_hex(4)}.tmp"
-    tmp.write_text(expires_at.isoformat(), encoding="utf-8")
+    payload = {
+        "expires_at": expires_at.isoformat(),
+        "redirect_uri": redirect_uri,
+    }
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
     tmp.replace(path)  # atomic publish: readers never see a half-written entry.
     _pending_states[state] = expires_at
     return state
 
 
-def _consume_state(state: str | None) -> None:
-    """Validate the returned OAuth state and consume it (single use).
+def _consume_state(state: str | None) -> str:
+    """Validate the returned OAuth state, consume it (single use), and return redirect URI.
 
     The state file is the authority: reading it proves the state was issued,
     and deleting it claims it, so exactly one callback can ever succeed.
-    Raises HTTP 400 when the state is missing, unknown, expired or already
+    Raises HTTP 400 when the state is missing, unknown, expired, corrupt, or already
     consumed.
     """
     if not state:
@@ -133,15 +222,25 @@ def _consume_state(state: str | None) -> None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state"
         ) from None
+
     try:
-        expires_at = datetime.fromisoformat(text)
-    except ValueError:
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ValueError("State data is not a dict")
+        expires_at = datetime.fromisoformat(data["expires_at"])
+        redirect_uri = data.get("redirect_uri")
+        if not redirect_uri or not isinstance(redirect_uri, str):
+            raise ValueError("Invalid redirect_uri in state")
+    except Exception:
+        # Invalid or legacy format lacking redirect_uri fails closed
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state"
         ) from None
+
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid OAuth state")
     _pending_states.pop(state, None)
+    return redirect_uri
 
 
 def _exchange_code_for_token(code: str) -> str:
@@ -181,7 +280,7 @@ def _fetch_github_profile(access_token: str) -> dict[str, object]:
 
 
 @router.get("/github")
-def start_github_oauth() -> RedirectResponse:
+def start_github_oauth(redirect_uri: str | None = Query(default=None)) -> RedirectResponse:
     """Redirect the user to GitHub's OAuth authorize URL (minimal scope)."""
     settings = get_settings()
     if not settings.github_client_id:
@@ -189,11 +288,12 @@ def start_github_oauth() -> RedirectResponse:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="GITHUB_CLIENT_ID is not configured",
         )
+    validated_redirect_uri = validate_extension_redirect_uri(redirect_uri)
     params = {
         "client_id": settings.github_client_id,
         "redirect_uri": settings.github_redirect_uri,
         "scope": OAUTH_SCOPE,
-        "state": _create_state(),
+        "state": _create_state(validated_redirect_uri),
     }
     return RedirectResponse(f"{GITHUB_AUTHORIZE_URL}?{urlencode(params)}", status_code=status.HTTP_302_FOUND)
 
@@ -202,11 +302,12 @@ def start_github_oauth() -> RedirectResponse:
 def github_oauth_callback(code: str, state: str | None = Query(default=None)) -> RedirectResponse:
     """Handle the OAuth callback and create a session.
 
-    Verifies the state, exchanges the code for a token, loads (or creates) the
-    user, issues a signed session token, and redirects to the extension with
-    the token in the URL fragment. The GitHub token stays on the server.
+    Verifies the state, retrieves the bound extension redirect URI, exchanges
+    the code for a token, loads (or creates) the user, issues a signed session
+    token, and redirects to the extension with the token in the URL fragment.
+    The GitHub token stays on the server.
     """
-    _consume_state(state)
+    target_redirect_uri = _consume_state(state)
     github_token = _exchange_code_for_token(code)
     profile = _fetch_github_profile(github_token)
     user = find_or_create_user(
@@ -216,14 +317,8 @@ def github_oauth_callback(code: str, state: str | None = Query(default=None)) ->
         github_token=github_token,
     )
     session_token = create_session_token(user.id)
-    settings = get_settings()
-    if not settings.extension_redirect_uri:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="EXTENSION_REDIRECT_URI is not configured",
-        )
     fragment = urlencode({"token": session_token})
-    return RedirectResponse(f"{settings.extension_redirect_uri}#{fragment}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(f"{target_redirect_uri}#{fragment}", status_code=status.HTTP_302_FOUND)
 
 
 @router.get("/me")

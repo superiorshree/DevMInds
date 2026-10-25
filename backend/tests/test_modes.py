@@ -129,9 +129,9 @@ class TestPutModeSwitch:
     def test_put_mode_rejects_an_unknown_mode_with_400(self) -> None:
         """The contract promises 400 (not 422) for a mode that is not a UserMode."""
         headers = _session_headers(github_id=4243, login="mode-bad-value")
-        response = client.put("/api/me/mode", json={"mode": "open_contributor"}, headers=headers)
+        response = client.put("/api/me/mode", json={"mode": "contributor"}, headers=headers)
         assert response.status_code == 400
-        assert "open_contributor" in response.json()["detail"]
+        assert "contributor" in response.json()["detail"]
 
     def test_put_mode_does_not_leak_between_users(self) -> None:
         """One user switching mode never changes another user's mode."""

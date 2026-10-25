@@ -102,7 +102,7 @@ export function IntegrationDrawer({ integrations, isOpen, onClose }: Integration
               }}
             >
               {/* TODO(Kunal): call the connect/disconnect API and refresh status. */}
-              {integration.connected ? "Disconnect" : "Connect"}
+              {integration.connected ? "Connected" : "Disconnected"}
             </button>
           </div>
         ))}

@@ -98,6 +98,9 @@ Names only — never commit values. See `backend/.env.example`.
 | `DATABASE_URL` | PostgreSQL URL (optional for local demo) |
 | `GITHUB_CLIENT_ID` | GitHub OAuth app client id |
 | `GITHUB_CLIENT_SECRET` | GitHub OAuth app secret |
+| `SESSION_SECRET` | HS256 secret for signing session tokens |
+| `ALLOWED_EXTENSION_IDS` | Comma-separated list of allowed unpacked Chrome extension IDs for OAuth redirects |
+| `EXTENSION_REDIRECT_URI` | Optional fallback redirect URI (`https://<id>.chromiumapp.org/provide_cb.html`) |
 | `LLM_API_KEY` | LLM provider key (backend only, never in the extension) |
 | `JIRA_BASE_URL` | e.g. `https://acme.atlassian.net` |
 | `JIRA_API_TOKEN` | Jira read-only token |

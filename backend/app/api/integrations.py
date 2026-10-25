@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.modes import CurrentUser, UserMode, mode_has_feature, require_feature
 from app.core.security import get_current_user
-from app.integrations.health import integration_health
+from app.integrations import integration_status
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -48,6 +48,11 @@ async def list_integrations(
 ) -> dict[str, list[dict[str, object]]]:
     """List integrations with real connection status."""
 
+    Availability comes from the server-side mode; `connected` comes from the
+    connectors themselves (their config/credential check), so unavailable
+    providers are never queried at all.
+    """
+    statuses = integration_status()
     providers = [
         ("github", ""),
         ("jira", "jira"),
@@ -64,13 +69,14 @@ async def list_integrations(
 
     for name, feature in providers:
         available = not feature or mode_has_feature(user.mode, feature)
-
-        provider_health = health.get(name, "NOT_CONNECTED")
-
-        connected = (
-            available
-            and name != "github"
-            and provider_health == "connected"
+        connected = available and statuses.get(name, "not_connected") == "connected"
+        out.append(
+            {
+                "provider": name,
+                "available": available,
+                "connected": connected,
+                "detail": "" if available else f"Requires feature '{feature}'",
+            }
         )
 
         out.append({

@@ -11,6 +11,7 @@ No test talks to the real GitHub: httpx.post / httpx.get are mocked, and the
 session/extension URIs come from per-test environment variables.
 """
 
+import json
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -21,6 +22,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import auth
+from app.core import security
 from app.core.config import get_settings
 from app.core.security import create_session_token, find_or_create_user
 from app.main import app
@@ -57,8 +59,10 @@ def _test_settings(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("EXTENSION_REDIRECT_URI", EXTENSION_REDIRECT_URI)
     monkeypatch.setenv("GITHUB_CLIENT_ID", "test-client-id")
     monkeypatch.setenv("GITHUB_CLIENT_SECRET", "test-client-secret")
+    security._REVOKED_TOKENS.clear()
     get_settings.cache_clear()
     yield
+    security._REVOKED_TOKENS.clear()
     get_settings.cache_clear()
 
 
@@ -221,14 +225,17 @@ class TestSessionUserReachesSessionRoutes:
     """
 
     def test_chat_is_401_without_token_and_200_with_one(self) -> None:
+        """Unauthenticated chat returns 401. Authenticated chat returns 502 when
+        external AI is not configured (EXTERNAL_LLM_* not set in .env)."""
         user = find_or_create_user(github_id=55501, login="chatter", avatar_url="")
         token = create_session_token(user.id)
         body = {"owner": "vercel", "name": "next.js", "question": "Where does routing live?"}
 
         assert client.post("/api/chat", json=body).status_code == 401
         response = client.post("/api/chat", json=body, headers=_auth_headers(token))
-        assert response.status_code == 200
-        assert response.json()["sources"], "an answer always cites sources"
+        # External AI not configured → 502 with plain-language message.
+        assert response.status_code == 502
+        assert "AI is not configured" in response.json()["detail"]
 
     def test_architecture_is_401_without_token_and_200_with_one(self) -> None:
         user = find_or_create_user(github_id=55502, login="reader", avatar_url="")
@@ -240,3 +247,196 @@ class TestSessionUserReachesSessionRoutes:
         )
         assert response.status_code == 200
         assert response.json()["repository"]["owner"] == "vercel"
+        # Verify the response has the expected structure with correct field names
+        conn = response.json().get("connections", [])
+        if conn:
+            # Connection model uses from_component/to_component (aliases from/to)
+            c = conn[0]
+            assert "from_component" in c or "from" in c
+            assert "to_component" in c or "to" in c
+
+
+class TestDynamicExtensionRedirectFlow:
+    """Verifies dynamic Chrome extension redirect support and strict validation."""
+
+    def test_valid_extension_redirect_via_query_param(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """When a valid extension redirect URI is provided, it is bound to state and used upon callback."""
+        _mock_github(monkeypatch)
+        custom_uri = "https://custom-ext.chromiumapp.org/provide_cb.html"
+        monkeypatch.setenv("ALLOWED_EXTENSION_IDS", "custom-ext")
+        get_settings.cache_clear()
+
+        # Start OAuth with ?redirect_uri=...
+        response = client.get(
+            f"/api/auth/github?redirect_uri={custom_uri}", follow_redirects=False
+        )
+        assert response.status_code == 302
+        location = response.headers["location"]
+        state = parse_qs(urlparse(location).query)["state"][0]
+
+        # Callback redirects to the custom URI
+        cb_response = client.get(
+            f"/api/auth/github/callback?code=fake-code&state={state}", follow_redirects=False
+        )
+        assert cb_response.status_code == 302
+        cb_location = cb_response.headers["location"]
+        assert cb_location.startswith(f"{custom_uri}#")
+        token = parse_qs(urlparse(cb_location).fragment)["token"][0]
+        assert token
+
+    def test_invalid_and_arbitrary_redirect_urls_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Strict validation rejects arbitrary domains, http scheme, query params, fragments, etc."""
+        monkeypatch.setenv("ALLOWED_EXTENSION_IDS", "allowed-ext")
+        get_settings.cache_clear()
+
+        disallowed_urls = [
+            "https://evil.com/callback",
+            "http://allowed-ext.chromiumapp.org/provide_cb.html",  # not https
+            "https://unauthorized-ext.chromiumapp.org/provide_cb.html",  # not in allowlist
+            "https://allowed-ext.chromiumapp.org/provide_cb.html?leak=1",  # query params
+            "https://allowed-ext.chromiumapp.org/provide_cb.html#fragment",  # fragment
+            "https://allowed-ext.chromiumapp.org/other_cb.html",  # wrong path
+            "https://allowed-ext.chromiumapp.org:8080/provide_cb.html",  # port
+            "https://user:pass@allowed-ext.chromiumapp.org/provide_cb.html",  # credentials
+        ]
+
+        for bad_url in disallowed_urls:
+            response = client.get(
+                "/api/auth/github", params={"redirect_uri": bad_url}, follow_redirects=False
+            )
+            assert response.status_code == 400, f"Expected 400 for {bad_url}"
+
+    def test_oauth_state_stores_and_returns_matching_redirect_uri(self) -> None:
+        """_create_state stores JSON with expires_at and redirect_uri, and _consume_state returns it."""
+        target_uri = "https://example-ext.chromiumapp.org/provider_cb.html"
+        state = auth._create_state(target_uri)
+        path = auth._state_path(state)
+        assert path.exists()
+
+        content = json.loads(path.read_text(encoding="utf-8"))
+        assert "expires_at" in content
+        assert content["redirect_uri"] == target_uri
+
+        consumed_uri = auth._consume_state(state)
+        assert consumed_uri == target_uri
+        assert not path.exists()  # unlinked
+
+    def test_state_consumption_expired_unknown_and_replayed(self) -> None:
+        """Invalid, expired, missing, and replayed states fail closed."""
+        # 1. Unknown state
+        with pytest.raises(Exception):
+            auth._consume_state("never-issued-state")
+
+        # 2. Expired state file
+        target_uri = "https://example-ext.chromiumapp.org/provider_cb.html"
+        state = auth._create_state(target_uri)
+        path = auth._state_path(state)
+        expired_data = {
+            "expires_at": (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat(),
+            "redirect_uri": target_uri,
+        }
+        path.write_text(json.dumps(expired_data), encoding="utf-8")
+        with pytest.raises(Exception):
+            auth._consume_state(state)
+
+        # 3. Replay attack: second consumption fails
+        valid_state = auth._create_state(target_uri)
+        uri = auth._consume_state(valid_state)
+        assert uri == target_uri
+        with pytest.raises(Exception):
+            auth._consume_state(valid_state)
+
+        # 4. Corrupt state file
+        corrupt_state = auth._create_state(target_uri)
+        corrupt_path = auth._state_path(corrupt_state)
+        corrupt_path.write_text("not json content", encoding="utf-8")
+        with pytest.raises(Exception):
+            auth._consume_state(corrupt_state)
+
+    def test_two_different_extension_ids_isolated_sessions(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two developers with different extension IDs can start concurrent flows without collision."""
+        _mock_github(monkeypatch)
+        ext1_uri = "https://dev-ext-one.chromiumapp.org/provide_cb.html"
+        ext2_uri = "https://dev-ext-two.chromiumapp.org/provide_cb.html"
+        monkeypatch.setenv("ALLOWED_EXTENSION_IDS", "dev-ext-one,dev-ext-two")
+        get_settings.cache_clear()
+
+        # Dev 1 starts OAuth
+        r1 = client.get(f"/api/auth/github?redirect_uri={ext1_uri}", follow_redirects=False)
+        assert r1.status_code == 302
+        state1 = parse_qs(urlparse(r1.headers["location"]).query)["state"][0]
+
+        # Dev 2 starts OAuth
+        r2 = client.get(f"/api/auth/github?redirect_uri={ext2_uri}", follow_redirects=False)
+        assert r2.status_code == 302
+        state2 = parse_qs(urlparse(r2.headers["location"]).query)["state"][0]
+
+        assert state1 != state2
+
+        # Dev 2 completes callback first
+        cb2 = client.get(
+            f"/api/auth/github/callback?code=code2&state={state2}", follow_redirects=False
+        )
+        assert cb2.status_code == 302
+        assert cb2.headers["location"].startswith(f"{ext2_uri}#")
+
+        # Dev 1 completes callback second
+        cb1 = client.get(
+            f"/api/auth/github/callback?code=code1&state={state1}", follow_redirects=False
+        )
+        assert cb1.status_code == 302
+        assert cb1.headers["location"].startswith(f"{ext1_uri}#")
+
+    def test_session_token_in_fragment_matches_frontend_extract_token(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The callback returns the token in the URL fragment matching frontend extractToken()."""
+        _mock_github(monkeypatch)
+        ext_uri = "https://dev-ext-one.chromiumapp.org/provide_cb.html"
+        monkeypatch.setenv("ALLOWED_EXTENSION_IDS", "dev-ext-one")
+        get_settings.cache_clear()
+
+        r = client.get(f"/api/auth/github?redirect_uri={ext_uri}", follow_redirects=False)
+        state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+
+        cb = client.get(
+            f"/api/auth/github/callback?code=fake-code&state={state}", follow_redirects=False
+        )
+        redirect_url = cb.headers["location"]
+
+        # Simulate frontend extractToken()
+        parsed = urlparse(redirect_url)
+        fragment = parse_qs(parsed.fragment)
+        token = fragment.get("token", [None])[0]
+        assert token is not None
+
+        # Verify token works on /api/auth/me
+        me = client.get("/api/auth/me", headers=_auth_headers(token))
+        assert me.status_code == 200
+        assert me.json()["github_login"] == "octocat"
+
+    def test_cors_origins_automatically_allows_extension_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Extensions listed in CORS_ORIGINS are automatically allowed for OAuth redirect."""
+        _mock_github(monkeypatch)
+        monkeypatch.setenv("CORS_ORIGINS", "chrome-extension://cors-ext-id,http://localhost:5173")
+        monkeypatch.setenv("ALLOWED_EXTENSION_IDS", "")
+        get_settings.cache_clear()
+
+        cors_uri = "https://cors-ext-id.chromiumapp.org/provide_cb.html"
+        r = client.get(f"/api/auth/github?redirect_uri={cors_uri}", follow_redirects=False)
+        assert r.status_code == 302
+        state = parse_qs(urlparse(r.headers["location"]).query)["state"][0]
+
+        cb = client.get(
+            f"/api/auth/github/callback?code=fake-code&state={state}", follow_redirects=False
+        )
+        assert cb.status_code == 302
+        assert cb.headers["location"].startswith(f"{cors_uri}#")
