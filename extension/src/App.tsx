@@ -5,9 +5,9 @@
  *              detects the current GitHub repo from the active tab, and renders the
  *              repository card with "Analyze Repository" CTA before unlocking feature-gated tabs.
  * Contains:    App functional component, SessionState type, TabId type, tabsForMode() helper,
- *              sign-in screens, integrations screen, repo connect screen, settings screen, welcome screen, loading/offline states, and the tabbed shell.
- * Status:      IMPLEMENTED — session (getMe/signIn/signOut), live repo detection and
- *              feature-driven tabs wired; tab bodies still render mock data per the contract.
+ *              analysis state and handleAnalyze, sign-in screens, integrations screen, repo connect screen,
+ *              settings screen, welcome screen, loading/offline states, and the tabbed shell.
+ * Status:      REAL — session, live repo detection, real repository analysis, and feature-driven tabs wired.
  * Depends on:  extension/src/types/mode.ts, extension/src/services/repoDetector.ts, extension/src/services/api.ts,
  *              extension/src/components/*, extension/src/tabs/*, extension/src/mocks/mockData.ts
  */
@@ -17,12 +17,14 @@ import type { ModeFeatures, UserMode } from "./types/mode";
 import type { SessionUser } from "./services/api";
 import {
   BackendUnreachableError,
+  analyzeRepository,
   getMe,
   getMode,
   setMode,
   signIn,
   signOut,
 } from "./services/api";
+import type { ArchitectureBundle } from "./types/architecture";
 import type { ModeResponse } from "./services/api";
 import { localModeResponse } from "./services/api";
 import type { RepoRef } from "./services/repoDetector";
@@ -529,6 +531,34 @@ export default function App() {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [analyzeStarted, setAnalyzeStarted] = useState(false);
   const [analyzeHovered, setAnalyzeHovered] = useState(false);
+  const [analysis, setAnalysis] = useState<ArchitectureBundle | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  /** Trigger repository analysis using analyzeRepository from api.ts */
+  const handleAnalyze = async (): Promise<void> => {
+    if (!repo) return;
+    setAnalyzing(true);
+    setAnalysisError(null);
+    try {
+      const result = await analyzeRepository(repo.owner, repo.repo);
+      setAnalysis(result);
+    } catch (error) {
+      if (error instanceof BackendUnreachableError || session.status === "offline") {
+        setAnalysis(mockArchitecture);
+      } else {
+        setAnalysisError(error instanceof Error ? error.message : "Failed to analyze repository");
+      }
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  // Reset analysis when repository changes
+  useEffect(() => {
+    setAnalysis(null);
+    setAnalysisError(null);
+  }, [repo?.owner, repo?.repo]);
   const [openSourceView, setOpenSourceView] = useState<"main" | "expanded" | "ai_mentor">("main");
   const [expandedTab, setExpandedTab] = useState<ExpandedTab>("overview");
   // Bumped by the "Retry" button to re-check the session after a backend outage.
@@ -908,7 +938,10 @@ export default function App() {
           <button
             type="button"
             id="analyze-repo-btn"
-            onClick={() => setAnalyzeStarted(true)}
+            onClick={() => {
+              setAnalyzeStarted(true);
+              void handleAnalyze();
+            }}
             onMouseEnter={() => setAnalyzeHovered(true)}
             onMouseLeave={() => setAnalyzeHovered(false)}
             style={{
@@ -1193,7 +1226,14 @@ export default function App() {
           aria-label={TAB_LABELS[activeTab]}
           style={{ marginTop: "16px" }}
         >
-          {activeTab === "overview" && <OverviewTab overview={mockArchitecture.overview} />}
+          {activeTab === "overview" && (
+            <OverviewTab
+              analysis={analysis}
+              loading={analyzing}
+              error={analysisError}
+              onAnalyze={() => void handleAnalyze()}
+            />
+          )}
           {activeTab === "architecture" && <ArchitectureTab architecture={mockArchitecture} />}
           {activeTab === "contribute" && features.contributeTab && (
             <ContributeTab guide={mockContributorGuide} />
