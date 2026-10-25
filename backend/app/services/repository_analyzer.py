@@ -118,6 +118,20 @@ def analyze_repository(
     return _real_bundle(owner, name, branch, github_token)
 
 
+def build_repository_analysis(
+    owner: str,
+    repo: str = "",
+    branch: str = "main",
+    github_token: str = "",
+    name: str = "",
+    files: list[str] | None = None,
+    file_contents: dict[str, str] | None = None,
+) -> ArchitectureBundle:
+    """Return the architecture bundle for one repository."""
+    repo_name = repo or name
+    return analyze_repository(owner=owner, name=repo_name, branch=branch, github_token=github_token)
+
+
 def collect_repo_files(
     owner: str, name: str, branch: str = "main", github_token: str = ""
 ) -> RepositoryContext:

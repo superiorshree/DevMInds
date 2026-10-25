@@ -3,12 +3,12 @@
  * Owner:       Shreyansh
  * Purpose:     The single HTTP client for the extension — every backend call goes through here, with the base URL read from env.
  * Contains:    API_BASE_URL, BackendUnreachableError, session-token storage helpers, request() wrapper,
- *              and the typed functions getMe, getMode, setMode, signIn, signOut (plus the analyze /
+ *              analyzeRepository, getMe, getMode, setMode, signIn, signOut (plus the analyze /
  *              architecture / context / chat / integrations stubs other tabs will call).
  * Status:      IMPLEMENTED — sign-in, mode and session handling wired; data endpoints typed per the contract,
  *              backend-unreachable requests fall back to mock/local data so the UI still renders.
  * Depends on:  extension/src/types/mode.ts, extension/src/types/architecture.ts,
- *              docs/API_CONTRACT.md (GET /api/auth/me, /api/auth/github, /api/me/mode, POST /api/auth/logout)
+ *              docs/API_CONTRACT.md (GET /api/auth/me, /api/auth/github, /api/me/mode, POST /api/auth/logout, POST /api/repositories/analyze)
  */
 
 import type { ArchitectureBundle, ChatResponse, IntegrationStatus } from "../types/architecture";
@@ -223,6 +223,27 @@ export function analyze(owner: string, name: string, branch = "main"): Promise<{
     method: "POST",
     body: JSON.stringify({ owner, name, branch }),
   });
+}
+
+/**
+ * Analyze a repository via POST /api/repositories/analyze with the session token,
+ * returning the resulting architecture bundle.
+ */
+export async function analyzeRepository(
+  owner: string,
+  repo: string
+): Promise<ArchitectureBundle> {
+  const result = await request<ArchitectureBundle | { job_id: string }>(
+    "/api/repositories/analyze",
+    {
+      method: "POST",
+      body: JSON.stringify({ owner, name: repo, branch: "main" }),
+    }
+  );
+  if ("overview" in result && "technologies" in result) {
+    return result;
+  }
+  return getArchitecture(owner, repo);
 }
 
 /** Fetch the architecture bundle for a repository. */

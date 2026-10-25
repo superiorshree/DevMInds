@@ -5,8 +5,10 @@
  *              with suggested question chips, sources, and prompt input.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { RepoRef } from "../services/repoDetector";
+import { getLiveRepoBundle, type LiveRepoBundle } from "../services/githubApi";
+import { postChat } from "../services/api";
 
 export interface OpenSourceAiMentorChatProps {
   repo: RepoRef;
@@ -20,35 +22,53 @@ interface Message {
   sources?: string[];
 }
 
-const DEFAULT_MESSAGES: Message[] = [
-  {
-    id: "1",
-    sender: "user",
-    text: "How does semantic search work in SeaGOAT?",
-  },
-  {
-    id: "2",
-    sender: "ai",
-    text: "SeaGOAT combines semantic search with conventional text and regular-expression matching. Its documented stack includes embeddings and ChromaDB for semantic search, while ripgrep supports text-based matching. The CLI and server provide the documented search workflow.",
-    sources: ["README.md", "pyproject.toml"],
-  },
-];
-
-const SUGGESTIONS = [
-  "What is ChromaDB used for here?",
-  "How does the gt command reach the server?",
-  "Which files should I inspect for issue #751?",
-];
-
 export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChatProps) {
-  const [messages, setMessages] = useState<Message[]>(DEFAULT_MESSAGES);
+  const repoName = repo.repo;
+  const repoOwner = repo.owner;
+
+  const [bundle, setBundle] = useState<LiveRepoBundle | null>(null);
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: "initial-welcome",
+      sender: "ai",
+      text: `Hello! I'm your DevMinds AI Mentor for ${repoOwner}/${repoName}. I can answer questions about the codebase architecture, modules, setup steps, or open issues. What would you like to explore?`,
+      sources: ["README.md"],
+    },
+  ]);
   const [inputVal, setInputVal] = useState("");
   const [isTyping, setIsTyping] = useState(false);
 
-  const repoName = repo.repo || "SeaGOAT";
-  const repoOwner = repo.owner || "kantord";
+  useEffect(() => {
+    let active = true;
+    getLiveRepoBundle(repoOwner, repoName)
+      .then((data) => {
+        if (!active) return;
+        setBundle(data);
+        setMessages([
+          {
+            id: "live-welcome",
+            sender: "ai",
+            text: `Hello! I'm your DevMinds AI Mentor for ${repoOwner}/${repoName}. I have inspected the live repository structure (${data.contents.length} root items) and primary technologies (${data.topLanguages.join(", ")}). How can I assist your work today?`,
+            sources: data.contents.slice(0, 3).map((c) => c.name),
+          },
+        ]);
+      })
+      .catch(() => {
+        // Keeps baseline welcome if GitHub fetch fails
+      });
 
-  const handleSend = (textToSend?: string) => {
+    return () => {
+      active = false;
+    };
+  }, [repoOwner, repoName]);
+
+  const suggestions = [
+    `What technologies power ${repoName}?`,
+    `How do I set up and run tests?`,
+    `Where are the main entry points or source files?`,
+  ];
+
+  const handleSend = async (textToSend?: string) => {
     const text = (textToSend || inputVal).trim();
     if (!text) return;
 
@@ -61,30 +81,53 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
     setInputVal("");
     setIsTyping(true);
 
-    setTimeout(() => {
-      let aiResponseText = `Based on the ${repoName} codebase, this component interacts through documented CLI entry points and relies on verified local processing pipelines.`;
-      let sources = ["README.md"];
+    try {
+      // First try real backend chat API
+      const chatRes = await postChat(repoOwner, repoName, text);
+      const aiMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        sender: "ai",
+        text: chatRes.answer,
+        sources: chatRes.sources.map((s) => s.title),
+      };
+      setMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      // Offline fallback: ground answer strictly in live repository bundle
+      let answer = `Regarding ${repoName}: the project is built using ${bundle?.topLanguages.join(", ") || "the files in the repository"}.`;
+      let sources = bundle ? bundle.contents.slice(0, 2).map((c) => c.name) : ["README.md"];
 
-      if (text.includes("ChromaDB")) {
-        aiResponseText = "ChromaDB acts as the local vector database storing vector embeddings of your repository's code files to enable semantic, meaning-based code search.";
-        sources = ["seagoat/engine.py", "pyproject.toml"];
-      } else if (text.includes("gt") || text.includes("server")) {
-        aiResponseText = "The 'gt' CLI tool communicates with the background seagoat-server via local HTTP requests over a unix socket or local port to quickly query cached embeddings.";
-        sources = ["seagoat/server.py", "README.md"];
-      } else if (text.includes("751") || text.includes("issue")) {
-        aiResponseText = "For issue #751, inspect the file extension parsers in seagoat/repository.py and check related test coverage in tests/test_file_types.py.";
-        sources = ["seagoat/repository.py", "tests/test_file_types.py"];
+      const textLower = text.toLowerCase();
+      if (textLower.includes("tech") || textLower.includes("language") || textLower.includes("stack")) {
+        if (bundle) {
+          answer = `Based on live GitHub data, ${repoName} is developed in: ${Object.entries(bundle.languages)
+            .map(([lang, bytes]) => `${lang} (${Math.round(bytes / 1024)} KB)`)
+            .join(", ") || bundle.topLanguages.join(", ")}.`;
+          sources = bundle.contents.filter((c) => c.type === "file").slice(0, 3).map((c) => c.name);
+        }
+      } else if (textLower.includes("run") || textLower.includes("setup") || textLower.includes("test")) {
+        if (bundle) {
+          answer = `To get started with ${repoName}, the detected setup steps are:\n${bundle.setupSteps.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\nTo run tests:\n${bundle.testCommands.join("\n")}`;
+          sources = ["README.md"];
+        }
+      } else if (textLower.includes("entry") || textLower.includes("source") || textLower.includes("where") || textLower.includes("file")) {
+        if (bundle) {
+          const keyDirs = bundle.contents.filter((c) => c.type === "dir").map((c) => c.name);
+          const keyFiles = bundle.contents.filter((c) => c.type === "file").map((c) => c.name);
+          answer = `The root directory of ${repoName} contains directories: [${keyDirs.join(", ")}] and key files: [${keyFiles.slice(0, 6).join(", ")}]. Check the main directories for application logic.`;
+          sources = keyFiles.slice(0, 3);
+        }
       }
 
       const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         sender: "ai",
-        text: aiResponseText,
+        text: answer,
         sources,
       };
       setMessages((prev) => [...prev, aiMsg]);
+    } finally {
       setIsTyping(false);
-    }, 600);
+    }
   };
 
   return (
@@ -198,9 +241,10 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
           </svg>
           <span>{repoOwner}/{repoName}</span>
         </div>
+
         <div style={{ display: "flex", alignItems: "center", gap: "5px", color: "#166534", fontSize: "11px", fontWeight: 600 }}>
           <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
-          <span>Repository context active</span>
+          <span>Live repository grounded</span>
         </div>
       </div>
 
@@ -256,7 +300,7 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
                 boxShadow: m.sender === "ai" ? "2px 2px 0px #000000" : "none",
               }}
             >
-              <div style={{ fontSize: "13px", color: "#18181b", lineHeight: 1.48 }}>
+              <div style={{ fontSize: "13px", color: "#18181b", lineHeight: 1.48, whiteSpace: "pre-line" }}>
                 {m.text}
               </div>
 
@@ -347,7 +391,7 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
             <span>SUGGESTED QUESTIONS</span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {SUGGESTIONS.map((q) => (
+            {suggestions.map((q) => (
               <button
                 key={q}
                 type="button"
@@ -384,7 +428,7 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <input
             type="text"
-            placeholder="Ask anything about this repository..."
+            placeholder={`Ask anything about ${repoName}...`}
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             onKeyDown={(e) => {
@@ -426,9 +470,9 @@ export function OpenSourceAiMentorChat({ repo, onClose }: OpenSourceAiMentorChat
 
         <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "11px", color: "#6b7280", marginTop: "6px" }}>
           <div style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
-          <span>Answers grounded in repository sources</span>
+          <span>Answers grounded in live repository sources</span>
         </div>
       </footer>
     </div>
   );
-}
+}

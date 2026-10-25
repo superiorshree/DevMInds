@@ -4,7 +4,11 @@
   "version": "0.1.0",
   "description": "Turn any GitHub repository into a friendly mentor. Explains architecture, helps you contribute, and answers questions.",
   "permissions": ["sidePanel", "activeTab", "identity", "storage"],
-  "host_permissions": ["https://github.com/*", "http://localhost:8000/*"],
+  "host_permissions": [
+    "https://github.com/*",
+    "https://api.github.com/*",
+    "http://localhost:8000/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
@@ -14,4 +18,4 @@
   "side_panel": {
     "default_path": "index.html"
   }
-}
+}
