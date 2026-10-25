@@ -42,13 +42,25 @@ def _block_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", blocked)
 
 
+
 def _use_real_connectors(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Turn the mock switch off and remove any Jira credentials."""
+    """Disable mock mode and simulate missing credentials for all providers."""
+
     monkeypatch.setattr(integrations.settings, "use_mock_integrations", False)
+
+    # Jira
     monkeypatch.setattr(integrations.settings, "jira_base_url", "")
     monkeypatch.setattr(integrations.settings, "jira_email", "")
     monkeypatch.setattr(integrations.settings, "jira_api_token", "")
 
+    # Slack
+    monkeypatch.setattr(integrations.settings, "slack_bot_token", "")
+    monkeypatch.setattr(integrations.settings, "slack_channel_ids", "")
+
+    # Confluence
+    monkeypatch.setattr(integrations.settings, "confluence_base_url", "")
+    monkeypatch.setattr(integrations.settings, "confluence_email", "")
+    monkeypatch.setattr(integrations.settings, "confluence_api_token", "")
 
 def test_open_source_mode_raises_permission_error(
     monkeypatch: pytest.MonkeyPatch,

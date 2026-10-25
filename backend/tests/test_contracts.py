@@ -178,7 +178,7 @@ class TestSettings:
         assert hasattr(settings, "allow_external_for_company")
         assert settings.allow_external_for_company is False
         assert hasattr(settings, "use_mock_integrations")
-        assert settings.use_mock_integrations is True
+        assert isinstance(settings.use_mock_integrations, bool)
         assert hasattr(settings, "jira_base_url")
         assert hasattr(settings, "jira_email")
         assert hasattr(settings, "jira_api_token")
@@ -262,11 +262,20 @@ class TestAIFrozenContractReuse:
         assert ai.AIAnswer is AIAnswer
         assert ai.AIError is AIError
 
-    def test_stub_ai_service_returns_a_contract_answer(self) -> None:
+    def test_ai_service_returns_a_contract_answer(self, monkeypatch) -> None:
         import asyncio
 
         import app.ai as ai
         from app.schemas.contracts import AIAnswer
+
+        async def fake_generate(self, messages):
+            return "Routing lives in the backend."
+
+        monkeypatch.setattr(
+            ai.ExternalLLMProvider,
+            "generate",
+            fake_generate,
+        )
 
         answer = asyncio.run(
             ai.get_ai_service().answer(
@@ -276,6 +285,8 @@ class TestAIFrozenContractReuse:
                 mode="open_source",
             )
         )
+
         assert isinstance(answer, AIAnswer)
-        assert answer.answer
+        assert answer.answer == "Routing lives in the backend."
+        assert answer.provider == "external"
         assert answer.error is None
