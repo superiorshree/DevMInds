@@ -26,7 +26,7 @@ def _context(repo_full_name: str, query: str, mode: str) -> CompanyContext:
 
 
 # ---------------------------------------------------------------------------
-# Error-code mapping
+# Error-code mapping via normalize.error_from_status
 # ---------------------------------------------------------------------------
 
 
@@ -163,6 +163,7 @@ def test_url_is_non_empty(monkeypatch):
 # ---------------------------------------------------------------------------
 # Partial failure: verify error collection pattern
 # ---------------------------------------------------------------------------
+
 
 def test_partial_failure_errors_collected_when_no_items(monkeypatch):
     """Verify that when connectors fail, errors are collected in CompanyContext.
