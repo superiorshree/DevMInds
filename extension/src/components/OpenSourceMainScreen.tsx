@@ -5,9 +5,15 @@
  *              list of 4 feature entry points, and floating AI Mentor button.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SessionUser } from "../services/api";
 import type { RepoRef } from "../services/repoDetector";
+import {
+  fetchRepoDetails,
+  fetchRepoLanguages,
+  type GitHubRepoDetails,
+  RateLimitError,
+} from "../services/githubApi";
 
 export interface OpenSourceMainScreenProps {
   repo: RepoRef;
@@ -31,11 +37,47 @@ export function OpenSourceMainScreen({
   const [hoveredCard, setHoveredCard] = useState<string | null>(null);
   const [mentorHovered, setMentorHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [details, setDetails] = useState<GitHubRepoDetails | null>(null);
+  const [languages, setLanguages] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
-  const repoName = repo.repo || "SeaGOAT";
-  const repoOwner = repo.owner || "kantord";
-  const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
+  const repoName = details?.name || repo.repo;
+  const repoOwner = details?.owner || repo.owner;
+  const repoUrl = details?.html_url || `https://github.com/${repo.owner}/${repo.repo}`;
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError(null);
+
+    Promise.all([
+      fetchRepoDetails(repo.owner, repo.repo),
+      fetchRepoLanguages(repo.owner, repo.repo),
+    ])
+      .then(([d, langs]) => {
+        if (!active) return;
+        setDetails(d);
+        setLanguages(Object.keys(langs).slice(0, 6));
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        if (err instanceof RateLimitError) {
+          setError(`GitHub API rate limit reached. Limit will reset at ${err.resetTime}.`);
+        } else {
+          setError(err instanceof Error ? err.message : "Failed to load live repository data");
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [repo.owner, repo.repo, retryCount]);
 
   return (
     <div
@@ -237,6 +279,45 @@ export function OpenSourceMainScreen({
 
       {/* Main Content Area */}
       <main style={{ padding: "16px 14px 80px 14px", flex: 1 }}>
+        {/* Error notification if rate limited or network failure */}
+        {error && (
+          <div
+            role="alert"
+            style={{
+              backgroundColor: "#fef2f2",
+              border: "1.5px solid #ef4444",
+              borderRadius: "10px",
+              padding: "12px 14px",
+              marginBottom: "16px",
+              boxShadow: "2px 2px 0px #ef4444",
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: "13px", color: "#991b1b", marginBottom: "4px" }}>
+              Unable to load live repository data
+            </div>
+            <div style={{ fontSize: "12px", color: "#b91c1c", marginBottom: "8px", lineHeight: 1.4 }}>
+              {error}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRetryCount((c) => c + 1)}
+              style={{
+                padding: "5px 12px",
+                backgroundColor: "#ffffff",
+                color: "#18181b",
+                border: "1.5px solid #18181b",
+                borderRadius: "6px",
+                fontSize: "12px",
+                fontWeight: 700,
+                cursor: "pointer",
+                boxShadow: "1px 1px 0px #000000",
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Repository Header Card */}
         <div
           style={{
@@ -247,74 +328,129 @@ export function OpenSourceMainScreen({
             marginBottom: "18px",
           }}
         >
-          <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "8px" }}>
-            {/* Octocat circle avatar */}
-            <div
-              style={{
-                width: "42px",
-                height: "42px",
-                borderRadius: "50%",
-                backgroundColor: "#18181b",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path
-                  fillRule="evenodd"
-                  clipRule="evenodd"
-                  d="M12 2C6.477 2 2 6.484 2 12.017C2 16.446 4.87 20.198 8.84 21.523C9.34 21.616 9.52 21.306 9.52 21.042C9.52 20.806 9.51 20.007 9.51 19.167C6.73 19.771 6.14 17.828 6.14 17.828C5.68 16.671 5.03 16.362 5.03 16.362C4.12 15.742 5.1 15.755 5.1 15.755C6.1 15.827 6.63 16.786 6.63 16.786C7.52 18.318 8.97 17.876 9.54 17.62C9.63 16.974 9.89 16.531 10.17 16.279C7.95 16.027 5.62 15.166 5.62 11.332C5.62 10.239 6.01 9.348 6.66 8.649C6.55 8.398 6.21 7.378 6.76 6.002C6.76 6.002 7.6 5.733 9.51 7.027C10.31 6.804 11.16 6.693 12 6.689C12.84 6.693 13.69 6.804 14.49 7.027C16.4 5.733 17.24 6.002 17.24 6.002C17.79 7.378 17.45 8.398 17.34 8.649C17.99 9.348 18.38 10.239 18.38 11.332C18.38 15.176 16.04 16.024 13.82 16.271C14.18 16.582 14.5 17.2 14.5 18.156C14.5 19.525 14.49 20.627 14.49 20.963C14.49 21.229 14.67 21.545 15.18 21.444C19.14 20.111 22 16.416 22 12.017C22 6.484 17.522 2 12 2Z"
-                  fill="#ffffff"
-                />
-              </svg>
+          {loading ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <div style={{ width: "42px", height: "42px", borderRadius: "50%", backgroundColor: "#e5e7eb" }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ height: "16px", width: "140px", backgroundColor: "#e5e7eb", borderRadius: "4px", marginBottom: "6px" }} />
+                  <div style={{ height: "12px", width: "90px", backgroundColor: "#f3f4f6", borderRadius: "4px" }} />
+                </div>
+              </div>
+              <div style={{ height: "13px", width: "85%", backgroundColor: "#f3f4f6", borderRadius: "4px" }} />
+              <div style={{ fontSize: "12px", color: "#6b7280" }}>Fetching live repository details from GitHub…</div>
             </div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: "12px", marginBottom: "8px" }}>
+                {/* Octocat circle avatar */}
+                <div
+                  style={{
+                    width: "42px",
+                    height: "42px",
+                    borderRadius: "50%",
+                    backgroundColor: "#18181b",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path
+                      fillRule="evenodd"
+                      clipRule="evenodd"
+                      d="M12 2C6.477 2 2 6.484 2 12.017C2 16.446 4.87 20.198 8.84 21.523C9.34 21.616 9.52 21.306 9.52 21.042C9.52 20.806 9.51 20.007 9.51 19.167C6.73 19.771 6.14 17.828 6.14 17.828C5.68 16.671 5.03 16.362 5.03 16.362C4.12 15.742 5.1 15.755 5.1 15.755C6.1 15.827 6.63 16.786 6.63 16.786C7.52 18.318 8.97 17.876 9.54 17.62C9.63 16.974 9.89 16.531 10.17 16.279C7.95 16.027 5.62 15.166 5.62 11.332C5.62 10.239 6.01 9.348 6.66 8.649C6.55 8.398 6.21 7.378 6.76 6.002C6.76 6.002 7.6 5.733 9.51 7.027C10.31 6.804 11.16 6.693 12 6.689C12.84 6.693 13.69 6.804 14.49 7.027C16.4 5.733 17.24 6.002 17.24 6.002C17.79 7.378 17.45 8.398 17.34 8.649C17.99 9.348 18.38 10.239 18.38 11.332C18.38 15.176 16.04 16.024 13.82 16.271C14.18 16.582 14.5 17.2 14.5 18.156C14.5 19.525 14.49 20.627 14.49 20.963C14.49 21.229 14.67 21.545 15.18 21.444C19.14 20.111 22 16.416 22 12.017C22 6.484 17.522 2 12 2Z"
+                      fill="#ffffff"
+                    />
+                  </svg>
+                </div>
 
-            <div>
-              <h2 style={{ margin: "0 0 2px 0", fontSize: "19px", fontWeight: 800, color: "#111827", lineHeight: 1.2 }}>
-                {repoName}
-              </h2>
-              <div style={{ fontSize: "12px", color: "#6b7280" }}>by {repoOwner}</div>
-            </div>
-          </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <h2 style={{ margin: "0 0 2px 0", fontSize: "19px", fontWeight: 800, color: "#111827", lineHeight: 1.2, wordBreak: "break-word" }}>
+                      {repoName}
+                    </h2>
+                    {details && details.stargazers_count > 0 && (
+                      <span
+                        style={{
+                          fontSize: "11.5px",
+                          fontWeight: 700,
+                          backgroundColor: "#fef3c7",
+                          color: "#92400e",
+                          padding: "2px 6px",
+                          borderRadius: "10px",
+                          border: "1px solid #fcd34d",
+                        }}
+                      >
+                        ★ {details.stargazers_count.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#6b7280" }}>by {repoOwner}</div>
+                </div>
+              </div>
 
-          <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#4b5563", lineHeight: 1.45 }}>
-            Local-first semantic code search with text and regex search.
-          </p>
+              <p style={{ margin: "0 0 10px 0", fontSize: "13px", color: "#4b5563", lineHeight: 1.45 }}>
+                {details?.description || "Live repository connected. No description provided on GitHub."}
+              </p>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "12px" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
-              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-            </svg>
-            <a
-              href={repoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ fontSize: "12px", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
-            >
-              github.com/{repoOwner}/{repoName}
-            </a>
-          </div>
+              {/* Technologies Pills */}
+              {languages.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "5px", marginBottom: "10px" }}>
+                  {languages.map((lang) => (
+                    <span
+                      key={lang}
+                      style={{
+                        padding: "2px 8px",
+                        backgroundColor: "#f3f4f6",
+                        border: "1px solid #d1d5db",
+                        borderRadius: "12px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: "#374151",
+                      }}
+                    >
+                      {lang}
+                    </span>
+                  ))}
+                </div>
+              )}
 
-          {/* Analysis Complete Badge */}
-          <div
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: "6px",
-              padding: "4px 10px",
-              backgroundColor: "#dcfce7",
-              color: "#166534",
-              borderRadius: "9999px",
-              fontSize: "11.5px",
-              fontWeight: 700,
-            }}
-          >
-            <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
-            <span>Analysis complete</span>
-          </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "12px" }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                <a
+                  href={repoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: "12px", color: "#2563eb", textDecoration: "none", fontWeight: 500 }}
+                >
+                  github.com/{repoOwner}/{repoName}
+                </a>
+              </div>
+
+              {/* Analysis Complete Badge */}
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "4px 10px",
+                  backgroundColor: "#dcfce7",
+                  color: "#166534",
+                  borderRadius: "9999px",
+                  fontSize: "11.5px",
+                  fontWeight: 700,
+                }}
+              >
+                <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: "#16a34a" }} />
+                <span>Live GitHub Data Connected</span>
+              </div>
+            </>
+          )}
         </div>
 
         {/* FEATURES label */}
@@ -583,3 +719,4 @@ export function OpenSourceMainScreen({
     </div>
   );
 }
+

@@ -23,6 +23,8 @@ returned. Rate limits (GitHub answers 403/429) raise ``RateLimitError`` so the
 route can turn it into HTTP 429 with a message the user understands.
 """
 
+from __future__ import annotations
+
 import base64
 from typing import Any
 from urllib.parse import quote
@@ -37,10 +39,6 @@ GITHUB_API_BASE_URL = "https://api.github.com"
 #: Per-request timeout in seconds (there is no GitHub timeout env var name).
 REQUEST_TIMEOUT_SECONDS = 15.0
 
-
-class GitHubAdapter(IntegrationAdapter):
-    """Read-only adapter for the GitHub REST API."""
-from __future__ import annotations
 
 import base64
 from typing import Any, Dict, List, Optional
@@ -75,10 +73,6 @@ class GitHubAdapter(IntegrationAdapter):
     provider = "github"
     DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
-    def __init__(self) -> None:
-        self._client: Optional[httpx.Client] = None
-        self._settings = get_settings()
-
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
@@ -105,40 +99,8 @@ class GitHubAdapter(IntegrationAdapter):
     # --- Connection -----------------------------------------------------
 
     def check_connection(self) -> bool:
-        """Return True when a token is configured and GitHub answers /rate_limit.
+        """Return True when GitHub is reachable and credentials are set.
 
-        Without a token there is nothing to check (and no call is made), so
-        an unconfigured adapter never touches the network.
-        """
-        if not self._token:
-            return False
-        try:
-            self._get("/rate_limit")
-        except AdapterError:
-            return False
-        return True
-
-    # --- Read paths -----------------------------------------------------
-
-    def fetch(self, **kwargs: Any) -> dict[str, Any]:
-        """Fetch repo details, file tree and key file contents in one call.
-
-        Keyword args: ``owner``, ``name`` and optional ``branch``.
-        """
-        owner = str(kwargs.get("owner", ""))
-        name = str(kwargs.get("name", ""))
-        branch = str(kwargs.get("branch", "")) or "main"
-        repository = self.get_repository(owner, name)
-        tree = self.get_tree(owner, name, branch)
-        files: dict[str, str] = {}
-        for entry in tree[:20]:
-            try:
-                files[entry["path"]] = self.get_file_content(
-                    owner, name, entry["path"], branch
-                )
-            except AdapterError:
-                continue  # one unreadable file must not sink the whole fetch
-        return {"repository": repository, "tree": tree, "files": files}
         If a token is configured, call GET /user to verify it. If no token
         (public-only mode), call GET /rate_limit which works without auth.
         """
@@ -147,6 +109,8 @@ class GitHubAdapter(IntegrationAdapter):
             return resp.status_code == 200
         except Exception:
             return False
+
+    # --- Read paths -----------------------------------------------------
 
     @staticmethod
     def _check_rate_limit(resp: httpx.Response) -> None:
@@ -327,21 +291,6 @@ class GitHubAdapter(IntegrationAdapter):
         """GitHub is read-only for this project."""
         raise NotImplementedError("GitHub adapter is read-only")
 
-    def get_repository(self, owner: str, name: str) -> dict[str, Any]:
-        """Return repo metadata: description, language, stars, topics, privacy."""
-        payload = self._get(f"/repos/{owner}/{name}").json()
-        return {
-            "full_name": str(payload.get("full_name") or f"{owner}/{name}"),
-            "description": str(payload.get("description") or ""),
-            "language": payload.get("language"),
-            "stars": int(payload.get("stargazers_count") or 0),
-            "topics": list(payload.get("topics") or []),
-            "default_branch": str(payload.get("default_branch") or "main"),
-            "last_updated": str(payload.get("pushed_at") or ""),
-            "private": bool(payload.get("private")),
-            "html_url": str(payload.get("html_url") or f"https://github.com/{owner}/{name}"),
-        }
-
     def get_tree(self, owner: str, name: str, branch: str = "main") -> list[dict[str, Any]]:
         """Return the branch's file list as [{"path": str, "size": int}]."""
         payload = self._get(
@@ -369,23 +318,6 @@ class GitHubAdapter(IntegrationAdapter):
             )
         resp.raise_for_status()
         return resp.json()
-
-    def get_tree(
-        self, owner: str, name: str, branch: str = "main"
-    ) -> list[dict[str, Any]]:
-        """Return the repository file tree for analysis.
-
-        GET /repos/{owner}/{repo}/git/trees/{branch}?recursive=1
-        """
-        resp = self.client.get(
-            GITHUB_TREE_PATH.format(owner=owner, repo=name, ref=branch)
-        )
-        self._check_rate_limit(resp)
-        if resp.status_code == 404:
-            return []
-        resp.raise_for_status()
-        tree_data = resp.json()
-        return self._parse_tree(tree_data.get("tree", []), branch, owner, name)
 
     def get_file_content(self, owner: str, name: str, path: str, ref: str = "main") -> str:
         """Return one file's text ("" when GitHub sends no usable content).
@@ -450,27 +382,6 @@ class GitHubAdapter(IntegrationAdapter):
         if status >= 400:
             raise AdapterError("github", f"GitHub returned HTTP {status}", code="api_down")
 
-
-def _looks_like_rate_limit(response: httpx.Response) -> bool:
-    """GitHub signals rate limiting with headers instead of a dedicated status."""
-    if response.headers.get("x-ratelimit-remaining") == "0":
-        return True
-    return "retry-after" in response.headers
-        GET /repos/{owner}/{repo}/contents/{path}?ref={ref}
-        """
-        resp = self.client.get(
-            GITHUB_CONTENTS_PATH.format(owner=owner, repo=name, path=path)
-        )
-        self._check_rate_limit(resp)
-        if resp.status_code == 404:
-            raise AdapterError(
-                "github", f"File {path} not found in {owner}/{name}", code="not_found"
-            )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("encoding") == "base64" and data.get("content"):
-            return base64.b64decode(data["content"]).decode("utf-8", errors="replace")
-        return data.get("text", "")
 
     def get_dependency_files(self, owner: str, repo: str, token: Optional[str] = None) -> list[GithubFile]:
         """Return dependency-relevant files (package.json, requirements.txt, etc.).
@@ -703,6 +614,13 @@ def _looks_like_rate_limit(response: httpx.Response) -> bool:
             "contributing": data.get("license", {}).get("key"),
             "conduct": data.get("code_of_conduct"),
         }
+
+
+def _looks_like_rate_limit(response: httpx.Response) -> bool:
+    """GitHub signals rate limiting with headers instead of a dedicated status."""
+    if response.headers.get("x-ratelimit-remaining") == "0":
+        return True
+    return "retry-after" in response.headers
 
 
 # Convenience: attach GithubFile model to the module for tests/imports

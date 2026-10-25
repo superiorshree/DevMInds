@@ -46,12 +46,10 @@ import { ContextTab } from "./tabs/ContextTab";
 import { AskAITab } from "./tabs/AskAITab";
 import { IntegrationDrawer } from "./tabs/IntegrationDrawer";
 import {
-  mockArchitecture,
-  mockChat,
-  mockContributorGuide,
-  mockIntegrations,
-  mockRelatedContext,
-} from "./mocks/mockData";
+  getLiveRepoBundle,
+  bundleToArchitecture,
+  RateLimitError,
+} from "./services/githubApi";
 
 /** Where the session stands: checking, signed out, signed in, or backend unreachable. */
 type SessionState =
@@ -545,7 +543,16 @@ export default function App() {
       setAnalysis(result);
     } catch (error) {
       if (error instanceof BackendUnreachableError || session.status === "offline") {
-        setAnalysis(mockArchitecture);
+        try {
+          const liveBundle = await getLiveRepoBundle(repo.owner, repo.repo);
+          setAnalysis(bundleToArchitecture(liveBundle));
+        } catch (liveErr) {
+          if (liveErr instanceof RateLimitError) {
+            setAnalysisError(`GitHub API rate limit reached. Limit will reset at ${liveErr.resetTime}.`);
+          } else {
+            setAnalysisError(liveErr instanceof Error ? liveErr.message : "Failed to analyze repository via live GitHub data");
+          }
+        }
       } else {
         setAnalysisError(error instanceof Error ? error.message : "Failed to analyze repository");
       }
@@ -850,7 +857,7 @@ export default function App() {
         {session.status === "offline" ? (
           <div style={{ textAlign: "center", padding: "20px" }}>
             <p style={{ color: "#f97316", marginBottom: "12px" }}>
-              Backend unreachable — showing mock data.
+              Backend offline — live GitHub data active.
             </p>
             <button
               type="button"
@@ -1000,7 +1007,7 @@ export default function App() {
                 fontSize: "12px",
               }}
             >
-              <span>Backend unreachable — showing mock data.</span>
+              <span>Backend offline — live GitHub data active.</span>
               <button
                 type="button"
                 onClick={() => setSessionCheck((tick) => tick + 1)}
@@ -1097,7 +1104,7 @@ export default function App() {
               fontSize: "12px",
             }}
           >
-            <span>Backend unreachable — showing mock data.</span>
+            <span>Backend offline — live GitHub data active.</span>
             <button
               type="button"
               onClick={() => setSessionCheck((tick) => tick + 1)}
@@ -1234,14 +1241,42 @@ export default function App() {
               onAnalyze={() => void handleAnalyze()}
             />
           )}
-          {activeTab === "architecture" && <ArchitectureTab architecture={mockArchitecture} />}
+          {activeTab === "architecture" && analysis && (
+            <ArchitectureTab architecture={analysis} />
+          )}
+          {activeTab === "architecture" && !analysis && (
+            <div style={{ padding: "16px", textAlign: "center", color: "#6b7280" }}>
+              Click "Analyze Repository" in Overview to generate the architecture bundle.
+            </div>
+          )}
           {activeTab === "contribute" && features.contributeTab && (
-            <ContributeTab guide={mockContributorGuide} />
+            <ContributeTab
+              guide={
+                analysis?.contributor_guide ?? {
+                  setup_steps: [],
+                  contribution_rules: [],
+                  good_first_issues: [],
+                  maintainers: [],
+                }
+              }
+            />
           )}
           {activeTab === "context" && features.contextTab && (
-            <ContextTab context={mockRelatedContext} />
+            <ContextTab
+              context={
+                analysis?.related_context ?? {
+                  jira_issues: [],
+                  confluence_pages: [],
+                }
+              }
+            />
           )}
-          {activeTab === "ask" && <AskAITab answer={mockChat} />}
+          {activeTab === "ask" && (
+            <AskAITab
+              owner={repo.owner}
+              repo={repo.repo}
+            />
+          )}
         </section>
 
         {/* Settings & Integration Drawer CTA */}
@@ -1272,7 +1307,17 @@ export default function App() {
         </button>
 
         <IntegrationDrawer
-          integrations={mockIntegrations}
+          integrations={[
+            {
+              provider: "github",
+              available: true,
+              connected: true,
+              detail: user ? `Signed in as @${user.github_login}` : "Connected to GitHub",
+            },
+            { provider: "jira", available: true, connected: false, detail: "Not connected" },
+            { provider: "confluence", available: true, connected: false, detail: "Not connected" },
+            { provider: "slack", available: true, connected: false, detail: "Not connected" },
+          ]}
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
         />
