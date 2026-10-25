@@ -43,8 +43,10 @@ def _require_provider_access(provider: str, user: CurrentUser) -> None:
 
 
 @router.get("")
-def list_integrations(user: CurrentUser = Depends(get_current_user)) -> dict[str, list[dict[str, object]]]:
-    """List providers with availability + connection status.
+async def list_integrations(
+    user: CurrentUser = Depends(get_current_user),
+) -> dict[str, list[dict[str, object]]]:
+    """List integrations with real connection status."""
 
     Availability comes from the server-side mode; `connected` comes from the
     connectors themselves (their config/credential check), so unavailable
@@ -57,7 +59,14 @@ def list_integrations(user: CurrentUser = Depends(get_current_user)) -> dict[str
         ("confluence", "confluence"),
         ("slack", "slackShare"),
     ]
+
+    # Never query company services for users without company access.
+    is_company = user.mode == UserMode.company
+
+    health = await integration_health() if is_company else {}
+
     out = []
+
     for name, feature in providers:
         available = not feature or mode_has_feature(user.mode, feature)
         connected = available and statuses.get(name, "not_connected") == "connected"
@@ -69,8 +78,23 @@ def list_integrations(user: CurrentUser = Depends(get_current_user)) -> dict[str
                 "detail": "" if available else f"Requires feature '{feature}'",
             }
         )
-    return {"providers": out}
 
+        out.append({
+            "provider": name,
+            "available": available,
+            "connected": connected,
+            "detail": (
+                provider_health
+                if available and name != "github"
+                else (
+                    "Connection status not implemented"
+                    if available
+                    else f"Requires feature '{feature}'"
+                )
+            ),
+        })
+
+    return {"providers": out}
 
 @router.post("/{provider}/connect")
 def connect_provider(provider: str, user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
