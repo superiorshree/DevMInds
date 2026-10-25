@@ -564,12 +564,22 @@ export default function App() {
     }
   }, [modeInfo.mode, repo?.owner, repo?.repo]);
 
-  // Automatically fetch live GitHub facts whenever repo changes
+  // Automatically fetch live GitHub facts and analyze whenever repo changes
   useEffect(() => {
     if (!repo?.owner || !repo?.repo) {
       setLiveRepo(null);
+      setArchitectureData(null);
+      setAnalyzeStarted(false);
+      setAnalyzeError(null);
       return;
     }
+
+    // Clear previous repo data immediately to prevent showing stale facts
+    setLiveRepo(null);
+    setArchitectureData(null);
+    setAnalyzeStarted(false);
+    setAnalyzeError(null);
+
     let cancelled = false;
     fetchLiveRepoSnapshot(repo.owner, repo.repo)
       .then((snapshot) => {
@@ -578,6 +588,10 @@ export default function App() {
       .catch((err) => {
         console.warn("Failed to fetch live GitHub repository snapshot:", err);
       });
+
+    // Auto-trigger architecture analysis for the active repo
+    void triggerAnalysis(repo);
+
     return () => {
       cancelled = true;
     };
@@ -585,14 +599,20 @@ export default function App() {
 
   async function triggerAnalysis(targetRepo?: RepoRef | null) {
     const current = targetRepo || repo;
-    if (!current) return;
+    if (!current?.owner || !current?.repo) return;
     setIsAnalyzing(true);
     setAnalyzeError(null);
     setAnalyzeStarted(true);
 
     try {
       const bundle = await analyzeRepository(current.owner, current.repo);
-      setArchitectureData(bundle);
+      // Strictly verify bundle matches the repository currently being analyzed
+      if (
+        bundle?.repository?.name?.toLowerCase() === current.repo.toLowerCase() &&
+        bundle?.repository?.owner?.toLowerCase() === current.owner.toLowerCase()
+      ) {
+        setArchitectureData(bundle);
+      }
     } catch (err: any) {
       console.warn("Analysis request failed:", err);
       setAnalyzeError(err?.message || "Failed to analyze repository.");
@@ -601,6 +621,15 @@ export default function App() {
       setIsAnalyzing(false);
     }
   }
+
+  // Derive current verified architecture data (null if belonging to a different repo)
+  const isCurrentArch = Boolean(
+    architectureData &&
+    repo &&
+    architectureData.repository?.owner?.toLowerCase() === repo.owner.toLowerCase() &&
+    architectureData.repository?.name?.toLowerCase() === repo.repo.toLowerCase()
+  );
+  const currentArchData = isCurrentArch ? architectureData : null;
   const [openSourceView, setOpenSourceView] = useState<"main" | "expanded" | "ai_mentor">("main");
   const [expandedTab, setExpandedTab] = useState<ExpandedTab>("overview");
   // Bumped by the "Retry" button to re-check the session after a backend outage.
@@ -929,7 +958,7 @@ export default function App() {
       <CompanyOnboardingRoadmapView
         repo={repo}
         user={user}
-        architectureData={architectureData}
+        architectureData={currentArchData}
         liveRepo={liveRepo}
         companyContext={companyContext}
         onExploreStep={(stepNum) => {
@@ -1075,7 +1104,7 @@ export default function App() {
         <OpenSourceExpandedView
           repo={repo}
           activeTab={expandedTab}
-          architectureData={architectureData}
+          architectureData={currentArchData}
           liveRepo={liveRepo}
           isAnalyzing={isAnalyzing}
           analyzeError={analyzeError}
@@ -1094,7 +1123,7 @@ export default function App() {
       <OpenSourceMainScreen
         repo={repo}
         user={user}
-        architectureData={architectureData}
+        architectureData={currentArchData}
         liveRepo={liveRepo}
         isAnalyzing={isAnalyzing}
         analyzeError={analyzeError}
@@ -1283,7 +1312,7 @@ export default function App() {
           {activeTab === "overview" && (
             <OverviewTab
               overview={
-                architectureData?.overview ||
+                currentArchData?.overview ||
                 (liveRepo
                   ? {
                       summary: liveRepo.metadata.description || `${repo.owner}/${repo.repo}`,
@@ -1301,7 +1330,7 @@ export default function App() {
           {activeTab === "architecture" && (
             <ArchitectureTab
               architecture={
-                architectureData ||
+                currentArchData ||
                 (liveRepo
                   ? {
                       repository: {
@@ -1333,10 +1362,10 @@ export default function App() {
             />
           )}
           {activeTab === "contribute" && features.contributeTab && (
-            <ContributeTab guide={architectureData?.contributor_guide ?? undefined} />
+            <ContributeTab guide={currentArchData?.contributor_guide ?? undefined} />
           )}
           {activeTab === "context" && features.contextTab && (
-            <ContextTab context={architectureData?.related_context} />
+            <ContextTab context={currentArchData?.related_context} />
           )}
           {activeTab === "ask" && <AskAITab repo={repo} />}
         </section>

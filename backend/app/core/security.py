@@ -107,8 +107,18 @@ def github_token_for(user_id: str) -> str:
     Never returned to the client and never put in a response body — the
     callers pass it straight into an adapter that talks to GitHub.
     """
+    import os
     record = _USERS.get(user_id)
-    return record.github_token if record is not None else ""
+    token = record.github_token if record is not None else ""
+    if not token:
+        settings = get_settings()
+        token = (
+            getattr(settings, "github_token", "")
+            or getattr(settings, "vite_github_token", "")
+            or os.environ.get("GITHUB_TOKEN", "")
+            or os.environ.get("VITE_GITHUB_TOKEN", "")
+        )
+    return token
 
 
 def _session_secret() -> str:

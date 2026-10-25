@@ -48,8 +48,18 @@ export function OpenSourceMainScreen({
   const repoName = repo.repo || liveRepo?.metadata?.repo || "";
   const repoOwner = repo.owner || liveRepo?.metadata?.owner || "";
   const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
+
+  const isCurrentBundle = Boolean(
+    architectureData &&
+    repoOwner &&
+    repoName &&
+    architectureData.repository?.owner?.toLowerCase() === repoOwner.toLowerCase() &&
+    architectureData.repository?.name?.toLowerCase() === repoName.toLowerCase()
+  );
+  const currentArchData = isCurrentBundle ? architectureData : null;
+
   const repoDescription =
-    architectureData?.overview?.summary ||
+    currentArchData?.overview?.summary ||
     liveRepo?.metadata?.description ||
     (isAnalyzing ? "Analyzing repository structure and architecture..." : "Public GitHub repository.");
 
@@ -368,7 +378,7 @@ export function OpenSourceMainScreen({
                 </button>
               )}
             </div>
-          ) : architectureData ? (
+          ) : currentArchData ? (
             <div
               style={{
                 display: "inline-flex",

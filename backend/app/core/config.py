@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
     github_redirect_uri: str = "http://localhost:8000/api/auth/github/callback"
+    github_token: str = ""
+    vite_github_token: str = ""
 
     # Session signing secret (HS256) — backend only, NEVER shipped to the extension.
     # No default on purpose: it MUST come from the environment.

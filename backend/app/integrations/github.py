@@ -92,7 +92,14 @@ class GitHubAdapter(IntegrationAdapter):
                 "Accept": "application/vnd.github+json",
                 "X-GitHub-Api-Version": "2022-11-28",
             }
-            token = self._token or getattr(self._settings, "github_token", "")
+            import os
+            token = (
+                self._token
+                or getattr(self._settings, "github_token", "")
+                or getattr(self._settings, "vite_github_token", "")
+                or os.environ.get("GITHUB_TOKEN", "")
+                or os.environ.get("VITE_GITHUB_TOKEN", "")
+            )
             if token:
                 headers["Authorization"] = f"Bearer {token}"
             self._client = httpx.Client(

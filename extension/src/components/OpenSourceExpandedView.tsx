@@ -379,15 +379,24 @@ function OverviewContent({
   onRetryAnalysis?: () => void;
   onNavigate: (tab: ExpandedTab) => void;
 }) {
+  const isCurrentBundle = Boolean(
+    architectureData &&
+    repoOwner &&
+    repoName &&
+    architectureData.repository?.owner?.toLowerCase() === repoOwner.toLowerCase() &&
+    architectureData.repository?.name?.toLowerCase() === repoName.toLowerCase()
+  );
+  const currentArchData = isCurrentBundle ? architectureData : null;
+
   const summary =
-    architectureData?.overview?.summary ||
+    currentArchData?.overview?.summary ||
     liveRepo?.metadata?.description ||
     (isAnalyzing ? "Analyzing repository facts and structure..." : `Repository ${repoOwner}/${repoName}.`);
 
   // Real technologies: prefer architecture bundle, fallback to live GitHub languages
   const technologies: { name: string; evidence?: string }[] = [];
-  if (architectureData?.technologies && architectureData.technologies.length > 0) {
-    for (const t of architectureData.technologies) {
+  if (currentArchData?.technologies && currentArchData.technologies.length > 0) {
+    for (const t of currentArchData.technologies) {
       const ev = (t as any).evidence || (t.evidence_files && t.evidence_files[0]) || "";
       technologies.push({ name: t.name, evidence: ev });
     }
@@ -398,7 +407,7 @@ function OverviewContent({
   }
 
   // Real project structure: prefer architecture components, fallback to top-level files
-  const components = architectureData?.components || [];
+  const components = currentArchData?.components || [];
   const topFiles = liveRepo?.topFiles || [];
 
   return (
@@ -418,7 +427,7 @@ function OverviewContent({
         >
           What is {repoName}?
         </h1>
-        {architectureData ? (
+        {currentArchData ? (
           <div
             style={{
               display: "inline-flex",
@@ -728,8 +737,17 @@ function ArchitectureContent({
   selectedNode: string;
   onSelectNode: (nodeId: string) => void;
 }) {
-  const components = architectureData?.components || [];
-  const connections = architectureData?.connections || [];
+  const isCurrentBundle = Boolean(
+    architectureData &&
+    repoOwner &&
+    repoName &&
+    architectureData.repository?.owner?.toLowerCase() === repoOwner.toLowerCase() &&
+    architectureData.repository?.name?.toLowerCase() === repoName.toLowerCase()
+  );
+  const currentArchData = isCurrentBundle ? architectureData : null;
+
+  const components = currentArchData?.components || [];
+  const connections = currentArchData?.connections || [];
   const topFiles = liveRepo?.topFiles || [];
 
   // Active selected component
@@ -959,8 +977,17 @@ function SetupTestingContent({
   copiedKey: string | null;
   onCopy: (text: string, key: string) => void;
 }) {
+  const isCurrentBundle = Boolean(
+    architectureData &&
+    repoOwner &&
+    repoName &&
+    architectureData.repository?.owner?.toLowerCase() === repoOwner.toLowerCase() &&
+    architectureData.repository?.name?.toLowerCase() === repoName.toLowerCase()
+  );
+  const currentArchData = isCurrentBundle ? architectureData : null;
+
   const fileNames = (liveRepo?.topFiles || []).map((f) => f.name.toLowerCase());
-  const techNames = (architectureData?.technologies || []).map((t) => t.name.toLowerCase());
+  const techNames = (currentArchData?.technologies || []).map((t) => t.name.toLowerCase());
 
   const hasPython =
     fileNames.some((f) => f.endsWith(".py") || f === "requirements.txt" || f === "pyproject.toml") ||
