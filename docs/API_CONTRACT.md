@@ -40,7 +40,7 @@ The extension mirrors it in `extension/src/types/mode.ts` and reads it from
 |---|---|---|
 | 400 | Bad request / validation error | `{"detail": "..."}` (FastAPI default) |
 | 401 | Not signed in with GitHub | `{"detail": "Not authenticated"}` |
-| 403 | Feature not allowed in this mode | `{"detail": "Feature 'jira' is not available in mode 'open_contributor'"}` |
+| 403 | Feature not allowed in this mode | `{"detail": "Feature 'jira' is not available in mode 'open_source'"}` |
 | 404 | Repo / resource not found | `{"detail": "..."}` |
 | 422 | Pydantic validation error | FastAPI validation array |
 | 429 | Upstream rate limit (GitHub/Jira/etc.) | `{"detail": "Rate limited by <provider>"}` |
@@ -59,21 +59,14 @@ Common error body (optional, used by adapters):
 ### `GET /api/auth/github` — start GitHub OAuth
 
 - **Mode access:** both (before mode is known).
-- **Response:** `302` redirect to GitHub's OAuth authorize URL.
-
-```
-# TODO(Shreyansh): build the real authorize URL from config and redirect.
-```
+- **Query:** `redirect_uri` (optional string): Chrome identity redirect URI (`https://<extension-id>.chromiumapp.org/provide_cb.html`). Must belong to an allowed extension ID.
+- **Response:** `302` redirect to GitHub's OAuth authorize URL, binding the validated extension redirect URI to the cryptographically random state.
 
 ### `GET /api/auth/github/callback` — OAuth callback
 
 - **Mode access:** both.
-- **Query:** `code`, `state`.
-- **Response:** `302` redirect to the extension with a session cookie set.
-
-```json
-{ "note": "TODO(Shreyansh): exchange code for token, create user, set session." }
-```
+- **Query:** `code` (string), `state` (string).
+- **Response:** `302` redirect to the validated extension redirect URI with the signed session token in the URL fragment (`#token=<session_token>`).
 
 ### `GET /api/auth/me` — current signed-in user
 
@@ -86,7 +79,7 @@ Common error body (optional, used by adapters):
   "id": "usr_123",
   "github_login": "shreyansh",
   "avatar_url": "https://avatars.githubusercontent.com/u/1?v=4",
-  "mode": "open_contributor"
+  "mode": "open_source"
 }
 ```
 
@@ -108,7 +101,7 @@ Common error body (optional, used by adapters):
 
 ```json
 {
-  "mode": "company_employee",
+  "mode": "company",
   "features": {
     "privateRepos": true,
     "contributeTab": false,
@@ -127,7 +120,7 @@ Common error body (optional, used by adapters):
 - **Request:**
 
 ```json
-{ "mode": "company_employee" }
+{ "mode": "company" }
 ```
 
 - **Response `200`:** same shape as `GET /api/me/mode`.

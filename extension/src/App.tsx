@@ -12,12 +12,13 @@
  */
 
 import { useEffect, useState } from "react";
-import type { ModeFeatures } from "./types/mode";
+import type { ModeFeatures, UserMode } from "./types/mode";
 import type { SessionUser } from "./services/api";
 import {
   BackendUnreachableError,
   getMe,
   getMode,
+  setMode,
   signIn,
   signOut,
 } from "./services/api";
@@ -27,6 +28,9 @@ import type { RepoRef } from "./services/repoDetector";
 import { detectRepoFromTabs } from "./services/repoDetector";
 import { ModeSwitcher } from "./components/ModeSwitcher";
 import { RepositoryHeader } from "./components/RepositoryHeader";
+import { SignInView } from "./components/SignInView";
+import { OpenSourceSignInView } from "./components/OpenSourceSignInView";
+import { OpenSourceWelcomeView } from "./components/OpenSourceWelcomeView";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { ArchitectureTab } from "./tabs/ArchitectureTab";
 import { ContributeTab } from "./tabs/ContributeTab";
@@ -132,6 +136,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [signingInMode, setSigningInMode] = useState<UserMode | null>(null);
+  const [signedOutStep, setSignedOutStep] = useState<"choose_mode" | "open_source_signin">("choose_mode");
   const [signInError, setSignInError] = useState<string | null>(null);
   // Bumped by the "Retry" button to re-check the session after a backend outage.
   const [sessionCheck, setSessionCheck] = useState(0);
@@ -207,22 +213,32 @@ export default function App() {
     }
   }, [modeInfo, activeTab]);
 
-  /** Start the GitHub OAuth flow through the backend. */
-  async function handleSignIn(): Promise<void> {
+  /** Start the GitHub OAuth flow through the backend for the chosen mode. */
+  async function handleSignIn(selectedMode: UserMode): Promise<void> {
     setIsSigningIn(true);
+    setSigningInMode(selectedMode);
     setSignInError(null);
     try {
       const user = await signIn();
-      setSession({ status: "signed_in", user });
+      try {
+        const refreshed = await setMode(selectedMode);
+        setModeInfo(refreshed);
+        setSession({ status: "signed_in", user: { ...user, mode: selectedMode } });
+      } catch {
+        setModeInfo(localModeResponse(selectedMode));
+        setSession({ status: "signed_in", user: { ...user, mode: selectedMode } });
+      }
     } catch (error) {
       setSignInError(error instanceof Error ? error.message : "Sign-in failed. Please try again.");
     } finally {
       setIsSigningIn(false);
+      setSigningInMode(null);
     }
   }
 
   /** Log out locally and server-side; a dead backend still clears the token. */
   async function handleSignOut(): Promise<void> {
+    setSignedOutStep("choose_mode");
     try {
       await signOut();
       setSession({ status: "signed_out" });
@@ -263,54 +279,45 @@ export default function App() {
 
   /* ---------------- Sign in ---------------- */
   if (session.status === "signed_out") {
+    if (signedOutStep === "open_source_signin") {
+      return (
+        <OpenSourceSignInView
+          onSignIn={() => handleSignIn("open_source")}
+          isSigningIn={isSigningIn}
+          error={signInError}
+          onChangeMode={() => setSignedOutStep("choose_mode")}
+        />
+      );
+    }
+
     return (
-      <div className="panel">
-        <div
-          className="panel__content"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            gap: "var(--space-3)",
-            minHeight: "60vh",
-          }}
-        >
-          <h2 style={{ margin: 0, fontSize: "var(--font-size-xl)" }}>DevMinds</h2>
-          <p style={{ margin: 0, color: "var(--color-text-muted)" }}>
-            Sign in with GitHub to explore repositories, ask questions, and get
-            contribution guidance.
-          </p>
-          <button
-            type="button"
-            onClick={() => void handleSignIn()}
-            disabled={isSigningIn}
-            style={{
-              padding: "var(--space-2) var(--space-4)",
-              border: "none",
-              borderRadius: "var(--radius-sm)",
-              background: "var(--color-primary)",
-              color: "var(--color-primary-contrast)",
-              cursor: isSigningIn ? "wait" : "pointer",
-              fontWeight: 600,
-              fontSize: "var(--font-size-sm)",
-            }}
-          >
-            {isSigningIn ? "Signing in…" : "Sign in with GitHub"}
-          </button>
-          {signInError && (
-            <p role="alert" style={{ margin: 0, color: "var(--color-danger)", fontSize: "var(--font-size-xs)" }}>
-              {signInError}
-            </p>
-          )}
-        </div>
-      </div>
+      <SignInView
+        onSelectMode={(mode) => {
+          if (mode === "open_source") {
+            setSignedOutStep("open_source_signin");
+          } else {
+            void handleSignIn("company");
+          }
+        }}
+        onSignIn={handleSignIn}
+        isSigningIn={isSigningIn}
+        signingInMode={signingInMode}
+        error={signInError}
+      />
     );
   }
 
   /* ---------------- Signed in (or offline) but not on a repo page ---------------- */
   if (!repo) {
+    if (modeInfo.mode === "open_source" && user) {
+      return (
+        <OpenSourceWelcomeView
+          user={user}
+          onSignOut={() => void handleSignOut()}
+        />
+      );
+    }
+
     return (
       <div className="panel">
         <div className="panel__content">

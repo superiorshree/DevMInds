@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     # chromiumapp.org URL the extension passes to chrome.identity.launchWebAuthFlow.
     extension_redirect_uri: str = ""
 
+    # Allowed Chrome extension IDs for OAuth redirects (comma-separated list of IDs or URLs).
+    # Allows multiple developers with different unpacked extension IDs to sign in.
+    allowed_extension_ids: str = ""
+
     # LLM provider — backend only.
     ai_chat_enabled: bool = True
     ollama_base_url: str = "http://localhost:11434"
@@ -76,6 +80,58 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> list[str]:
         """CORS origins as a list, trimmed and empty-safe."""
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def allowed_extension_ids_set(self) -> set[str]:
+        """Set of allowed Chrome extension IDs (lowercased) for OAuth redirects.
+
+        Extracts IDs from:
+        1. Explicitly configured allowed_extension_ids (IDs or chromiumapp URLs)
+        2. extension_redirect_uri (if configured)
+        3. cors_origins (e.g. chrome-extension://<id>)
+        """
+        from urllib.parse import urlsplit
+
+        allowed: set[str] = set()
+
+        if self.allowed_extension_ids:
+            for item in self.allowed_extension_ids.split(","):
+                item = item.strip().lower()
+                if not item:
+                    continue
+                if ".chromiumapp.org" in item:
+                    try:
+                        host = urlsplit(item).hostname or item
+                        ext_id = host.split(".chromiumapp.org")[0]
+                        if ext_id:
+                            allowed.add(ext_id)
+                    except Exception:
+                        pass
+                elif item.startswith("chrome-extension://"):
+                    ext_id = item.removeprefix("chrome-extension://").strip("/")
+                    if ext_id:
+                        allowed.add(ext_id)
+                else:
+                    allowed.add(item)
+
+        if self.extension_redirect_uri:
+            try:
+                host = (urlsplit(self.extension_redirect_uri).hostname or "").lower()
+                if host.endswith(".chromiumapp.org"):
+                    ext_id = host[:-len(".chromiumapp.org")]
+                    if ext_id:
+                        allowed.add(ext_id)
+            except Exception:
+                pass
+
+        for origin in self.cors_origins_list:
+            origin_lower = origin.strip().lower()
+            if origin_lower.startswith("chrome-extension://"):
+                ext_id = origin_lower.removeprefix("chrome-extension://").strip("/")
+                if ext_id and "<" not in ext_id and ">" not in ext_id:
+                    allowed.add(ext_id)
+
+        return allowed
 
 
 @lru_cache

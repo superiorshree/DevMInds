@@ -1,8 +1,8 @@
 # File:        backend/app/core/security.py
 # Owner:       Shreyansh
 # Purpose:     Handles authentication and the server-side notion of the current user.
-# Contains:    get_current_user() FastAPI dependency, create_session_token(), verify_session_token(), revoke_session_token(), find_or_create_user(), in-memory user store.
-# Status:      REAL — HS256 sessions + bearer auth; users live in memory until we add the database.
+# Contains:    get_current_user() FastAPI dependency, create_session_token(), verify_session_token(), revoke_session_token(), find_or_create_user(), update_user_mode(), github_token_for(), in-memory user store.
+# Status:      REAL — HS256 sessions + bearer auth, server-side mode updates and server-only GitHub tokens; users live in memory until we add the database.
 # Depends on:  backend/app/core/config.py (SESSION_SECRET), backend/app/core/modes.py (CurrentUser, UserMode)
 
 """Authentication helpers.
@@ -99,6 +99,16 @@ def update_user_mode(user: CurrentUser, mode: UserMode) -> CurrentUser:
         raise KeyError(user.id)
     record.mode = mode
     return record.to_current_user()
+
+
+def github_token_for(user_id: str) -> str:
+    """Return the user's GitHub token for SERVER-SIDE API calls only.
+
+    Never returned to the client and never put in a response body — the
+    callers pass it straight into an adapter that talks to GitHub.
+    """
+    record = _USERS.get(user_id)
+    return record.github_token if record is not None else ""
 
 
 def _session_secret() -> str:

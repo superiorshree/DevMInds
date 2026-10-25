@@ -1,84 +1,101 @@
 # File:        backend/app/integrations/__init__.py
 # Owner:       Kunal
-# Purpose:     Stub integrations module — to be replaced with real implementation.
-# Contains:    get_company_context() raising PermissionError if mode != "company",
-#              and integration_status() returning sample Jira, Slack and Confluence items.
-# Status:      STUB, to be replaced by Kunal.
-# Depends on:  (none — this is the stub interface).
+# Purpose:     The integrations package interface the rest of the backend calls: company context (company mode only) and connector status.
+# Contains:    get_company_context() (PermissionError outside company mode; mock stubs or the real JiraConnector), integration_status() over the real connectors, re-exports of the frozen contracts.
+# Status:      REAL — contracts come from app/schemas/contracts.py, company context from the real JiraConnector; Confluence/Slack dispatchers still to come.
+# Depends on:  backend/app/schemas/contracts.py (CompanyItem, ConnectorError, CompanyContext),
+#              backend/app/core/config.py (USE_MOCK_INTEGRATIONS), backend/app/integrations/jira.py
 
-from typing import Any, Literal
+"""Company integrations — the entry point Shreyansh's routes call.
+
+Two functions:
+
+* ``get_company_context(repo_full_name, query, mode)`` — raises
+  PermissionError unless ``mode == "company"``, because company-only data
+  must never reach an open_source session.
+* ``integration_status()`` — one status per connector.
+
+The frozen models live in ``app.schemas.contracts``; this module never
+declares its own CompanyItem/ConnectorError/CompanyContext, so every
+connector speaks exactly one shape.
+"""
+
+from typing import Literal
 
 from app.core.config import get_settings
-from app.integrations.base import IntegrationAdapter, AdapterError
+from app.schemas.contracts import CompanyContext, CompanyItem, ConnectorError
 
+__all__ = [
+    "CompanyContext",
+    "CompanyItem",
+    "ConnectorError",
+    "get_company_context",
+    "integration_status",
+]
 
-class CompanyItem:
-    """A company item from Jira, Slack, or Confluence."""
-    def __init__(self, source_type: Literal["jira", "slack", "confluence"],
-                 title: str, content: str, url: str, metadata: dict[str, Any] | None = None):
-        self.source_type = source_type
-        self.title = title
-        self.content = content
-        self.url = url
-        self.metadata = metadata or {}
-
-
-class ConnectorError:
-    """Error from an integration connector."""
-    def __init__(self, source_type: Literal["jira", "slack", "confluence"],
-                 code: Literal["NOT_CONNECTED", "TOKEN_EXPIRED", "NO_PERMISSION", "RATE_LIMITED", "API_DOWN"],
-                 message: str):
-        self.source_type = source_type
-        self.code = code
-        self.message = message
-
-
-class CompanyContext:
-    """Context produced by Kunal's integrations.
-
-    Mirrors the frozen contracts.CompanyContext {items, errors} shape.
-    """
-
-    def __init__(
-        self,
-        items: list[CompanyItem] | None = None,
-        errors: list[ConnectorError] | None = None,
-    ) -> None:
-        # Instance-level lists, never class-level defaults: CompanyContext()
-        # used to raise TypeError (no __init__) and shared its default lists.
-        self.items: list[CompanyItem] = list(items) if items is not None else []
-        self.errors: list[ConnectorError] = list(errors) if errors is not None else []
+#: The three company providers and their connector status values.
+StatusValue = Literal["connected", "not_connected", "error"]
 
 
 def get_company_context(repo_full_name: str, query: str, mode: str) -> CompanyContext:
     """Return company context for a repository.
 
-    Raises PermissionError if mode != "company".
+    Raises PermissionError if mode != "company" — the mode always comes from
+    the server-side session, never from the browser.
+
+    With USE_MOCK_INTEGRATIONS=true this returns clearly-labelled stub items
+    (demo data). With it false the real connectors run: today that is the
+    JiraConnector, which answers with frozen items or a frozen ConnectorError
+    (NOT_CONNECTED when JIRA_* is empty) instead of a fake success.
     """
     if mode != "company":
         raise PermissionError("get_company_context is only available in company mode")
 
-    # USE_MOCK_INTEGRATIONS=false must never serve sample data as if it were
-    # real company context. There is no real dispatcher yet, so fail loudly
-    # instead of returning a fake success.
-    if not get_settings().use_mock_integrations:
-        raise NotImplementedError(
-            "TODO(Kunal): USE_MOCK_INTEGRATIONS=false but no real integration "
-            "dispatcher exists yet — wire the jira/confluence/slack adapters here."
+    if get_settings().use_mock_integrations:
+        # Demo data only. The MOCK prefix stops stub items being mistaken for
+        # real issues or pages.
+        return CompanyContext(
+            items=[
+                CompanyItem(
+                    source_type="jira",
+                    title="MOCK DEV-101",
+                    content="Migrate router to new matcher",
+                    url="https://acme.atlassian.net/browse/DEV-101",
+                    metadata={"status": "In Progress"},
+                ),
+                CompanyItem(
+                    source_type="confluence",
+                    title="MOCK Design doc",
+                    content="New design approved",
+                    url="https://acme.atlassian.net/wiki/x/design",
+                    metadata={"space": "ENG"},
+                ),
+            ],
+            errors=[],
         )
 
-    # Mock mode: stub data — to be replaced by real integrations
-    return CompanyContext(items=[
-        CompanyItem(source_type="jira", title="DEV-101", content="Migrate router to new matcher", url="https://acme.atlassian.net/browse/DEV-101", metadata={}),
-        CompanyItem(source_type="slack", title="Channel update", content="Architecture summary posted", url="https://slack.com", metadata={}),
-        CompanyItem(source_type="confluence", title="Design doc", content="New design approved", url="https://confluence.com", metadata={}),
-    ], errors=[])
+    # Real path: the Jira connector. TODO(Kunal): dispatch to Confluence and
+    # Slack here too, merging their items and ConnectorErrors into one context.
+    from app.integrations.jira import JiraConnector
+
+    return JiraConnector().fetch(repo_full_name, query)
 
 
-def integration_status() -> dict[str, Literal["connected", "not_connected", "error"]]:
-    """Return the connection status of each integration."""
-    return {
-        "jira": "not_connected",
-        "slack": "not_connected",
-        "confluence": "not_connected",
+def integration_status() -> dict[str, StatusValue]:
+    """Return the connection status of each connector (queried live)."""
+    from app.integrations.confluence import ConfluenceAdapter
+    from app.integrations.jira import JiraConnector
+    from app.integrations.slack import SlackAdapter
+
+    checks = {
+        "jira": JiraConnector().check_connection,
+        "confluence": ConfluenceAdapter().check_connection,
+        "slack": SlackAdapter().check_connection,
     }
+    status: dict[str, StatusValue] = {}
+    for name, check in checks.items():
+        try:
+            status[name] = "connected" if check() else "not_connected"
+        except Exception:  # a broken adapter must not break the whole list
+            status[name] = "error"
+    return status
