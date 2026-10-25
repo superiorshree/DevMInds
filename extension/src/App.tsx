@@ -1,11 +1,12 @@
 /**
  * File:        extension/src/App.tsx
  * Owner:       Shreyansh
- * Purpose:     The side panel shell: detects the current GitHub repo from the active tab, handles sign-in through the backend,
- *              and renders the header, mode switcher, and the feature-gated tabs — tab content comes from mock data.
- * Contains:    App functional component, SessionState type, TabId type, tabsForMode() helper, sign-in screen,
- *              welcome screen, loading/offline states, user footer, and the tabbed shell.
- * Status:      IMPLEMENTED — session (getMe/signIn/signOut), mode (getMode/setMode), live repo detection and
+ * Purpose:     The side panel shell: manages the sign-in flow (choose mode -> sign in / integrations),
+ *              detects the current GitHub repo from the active tab, and renders the
+ *              repository card with "Analyze Repository" CTA before unlocking feature-gated tabs.
+ * Contains:    App functional component, SessionState type, TabId type, tabsForMode() helper,
+ *              sign-in screens, integrations screen, repo connect screen, settings screen, welcome screen, loading/offline states, and the tabbed shell.
+ * Status:      IMPLEMENTED — session (getMe/signIn/signOut), live repo detection and
  *              feature-driven tabs wired; tab bodies still render mock data per the contract.
  * Depends on:  extension/src/types/mode.ts, extension/src/services/repoDetector.ts, extension/src/services/api.ts,
  *              extension/src/components/*, extension/src/tabs/*, extension/src/mocks/mockData.ts
@@ -26,11 +27,12 @@ import type { ModeResponse } from "./services/api";
 import { localModeResponse } from "./services/api";
 import type { RepoRef } from "./services/repoDetector";
 import { detectRepoFromTabs } from "./services/repoDetector";
-import { ModeSwitcher } from "./components/ModeSwitcher";
-import { RepositoryHeader } from "./components/RepositoryHeader";
 import { SignInView } from "./components/SignInView";
 import { OpenSourceSignInView } from "./components/OpenSourceSignInView";
 import { OpenSourceWelcomeView } from "./components/OpenSourceWelcomeView";
+import { CompanyIntegrationsView } from "./components/CompanyIntegrationsView";
+import { CompanyRepoConnectView } from "./components/CompanyRepoConnectView";
+import { SettingsView } from "./components/SettingsView";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { ArchitectureTab } from "./tabs/ArchitectureTab";
 import { ContributeTab } from "./tabs/ContributeTab";
@@ -76,56 +78,434 @@ function tabsForMode(features: ModeFeatures): TabId[] {
   return tabs;
 }
 
-/** Panel footer: who is signed in, plus sign-out. */
-function SessionFooter({ user, onSignOut }: { user: SessionUser; onSignOut: () => void }) {
+/** Spark / sparkle icon for Analyze Repository button */
+function SparkleIcon() {
   return (
-    <footer
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M12 2 L13.5 9.5 L21 11 L13.5 12.5 L12 20 L10.5 12.5 L3 11 L10.5 9.5 Z"
+        fill="#000000"
+      />
+      <path
+        d="M19 2 L19.8 5.2 L23 6 L19.8 6.8 L19 10 L18.2 6.8 L15 6 L18.2 5.2 Z"
+        fill="#000000"
+      />
+    </svg>
+  );
+}
+
+/** GitHub Octocat icon */
+function GitHubIcon({ size = 16, color = "#18181b" }: { size?: number; color?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M12 2C6.477 2 2 6.484 2 12.017C2 16.446 4.87 20.198 8.84 21.523C9.34 21.616 9.52 21.306 9.52 21.042C9.52 20.806 9.51 20.007 9.51 19.167C6.73 19.771 6.14 17.828 6.14 17.828C5.68 16.671 5.03 16.362 5.03 16.362C4.12 15.742 5.1 15.755 5.1 15.755C6.1 15.827 6.63 16.786 6.63 16.786C7.52 18.318 8.97 17.876 9.54 17.62C9.63 16.974 9.89 16.531 10.17 16.279C7.95 16.027 5.62 15.166 5.62 11.332C5.62 10.239 6.01 9.348 6.66 8.649C6.55 8.398 6.21 7.378 6.76 6.002C6.76 6.002 7.6 5.733 9.51 7.027C10.31 6.804 11.16 6.693 12 6.689C12.84 6.693 13.69 6.804 14.49 7.027C16.4 5.733 17.24 6.002 17.24 6.002C17.79 7.378 17.45 8.398 17.34 8.649C17.99 9.348 18.38 10.239 18.38 11.332C18.38 15.176 16.04 16.024 13.82 16.271C14.18 16.582 14.5 17.2 14.5 18.156C14.5 19.525 14.49 20.627 14.49 20.963C14.49 21.229 14.67 21.545 15.18 21.444C19.14 20.111 22 16.416 22 12.017C22 6.484 17.522 2 12 2Z"
+        fill={color}
+      />
+    </svg>
+  );
+}
+
+/** Header bar used across all signed-in states */
+function AppHeader({
+  user,
+  onSignOut,
+  onOpenSettings,
+}: {
+  user: SessionUser | null;
+  onSignOut: () => void;
+  onOpenSettings?: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const initial = user?.github_login ? user.github_login.charAt(0).toUpperCase() : "P";
+
+  return (
+    <header
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "var(--space-2)",
-        marginTop: "var(--space-4)",
-        paddingTop: "var(--space-3)",
-        borderTop: "1px solid var(--color-border)",
+        justifyContent: "space-between",
+        padding: "11px 16px",
+        borderBottom: "1px solid #e5e0d8",
+        backgroundColor: "#faf7f2",
+        position: "sticky",
+        top: 0,
+        zIndex: 10,
       }}
     >
-      {user.avatar_url && (
-        <img
-          src={user.avatar_url}
-          alt=""
-          width={20}
-          height={20}
-          style={{ borderRadius: "50%" }}
-        />
-      )}
-      <span
+      {/* Logo + Name */}
+      <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
+        <div
+          style={{
+            width: "26px",
+            height: "26px",
+            backgroundColor: "#18181b",
+            borderRadius: "5px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <span
+            style={{
+              color: "#f59e0b",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+              fontWeight: 800,
+              fontSize: "12px",
+              lineHeight: 1,
+            }}
+          >
+            &gt;_
+          </span>
+        </div>
+        <span
+          style={{
+            fontWeight: 800,
+            fontSize: "15px",
+            letterSpacing: "-0.01em",
+            color: "#18181b",
+          }}
+        >
+          DevMinds
+        </span>
+        {/* Repo detected pill */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "5px",
+            backgroundColor: "transparent",
+            fontSize: "11px",
+            color: "#16a34a",
+            fontWeight: 600,
+          }}
+        >
+          <div
+            style={{
+              width: "7px",
+              height: "7px",
+              borderRadius: "50%",
+              backgroundColor: "#16a34a",
+            }}
+          />
+          Repository detected
+        </div>
+      </div>
+
+      {/* User Avatar + Dropdown */}
+      <div style={{ position: "relative" }}>
+        <button
+          type="button"
+          onClick={() => setMenuOpen((o) => !o)}
+          aria-label="User account menu"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "2px",
+          }}
+        >
+          <div
+            style={{
+              width: "27px",
+              height: "27px",
+              borderRadius: "50%",
+              backgroundColor: "#18181b",
+              color: "#ffffff",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontWeight: 700,
+              fontSize: "12px",
+              overflow: "hidden",
+            }}
+          >
+            {user?.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt={user.github_login}
+                width={27}
+                height={27}
+                style={{ borderRadius: "50%", objectFit: "cover" }}
+              />
+            ) : (
+              initial
+            )}
+          </div>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#18181b"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+
+        {menuOpen && (
+          <div
+            style={{
+              position: "absolute",
+              top: "36px",
+              right: 0,
+              backgroundColor: "#ffffff",
+              border: "1.5px solid #27272a",
+              borderRadius: "8px",
+              boxShadow: "3px 3px 0px #000000",
+              width: "168px",
+              zIndex: 50,
+              padding: "8px",
+            }}
+          >
+            {user && (
+              <div
+                style={{
+                  fontSize: "12px",
+                  color: "#6b7280",
+                  padding: "6px 8px",
+                  borderBottom: "1px solid #f3f4f6",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                @{user.github_login}
+              </div>
+            )}
+            {onOpenSettings && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenSettings();
+                }}
+                style={{
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px",
+                  border: "none",
+                  background: "transparent",
+                  color: "#18181b",
+                  fontSize: "12.5px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  borderRadius: "4px",
+                }}
+              >
+                Settings
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onSignOut();
+              }}
+              style={{
+                width: "100%",
+                textAlign: "left",
+                padding: "8px",
+                marginTop: "4px",
+                border: "none",
+                background: "transparent",
+                color: "#dc2626",
+                fontSize: "12.5px",
+                fontWeight: 600,
+                cursor: "pointer",
+                borderRadius: "4px",
+              }}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
+      </div>
+    </header>
+  );
+}
+
+/** Current Repository card */
+function RepoCard({ repo }: { repo: RepoRef }) {
+  const openOnGitHub = () => {
+    const url = `https://github.com/${repo.owner}/${repo.repo}`;
+    if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+      void chrome.tabs.create({ url });
+    } else {
+      window.open(url, "_blank");
+    }
+  };
+
+  const copyToClipboard = () => {
+    void navigator.clipboard.writeText(`${repo.owner}/${repo.repo}`);
+  };
+
+  return (
+    <div
+      style={{
+        backgroundColor: "#ffffff",
+        border: "1.5px solid #27272a",
+        borderRadius: "12px",
+        padding: "16px",
+        marginBottom: "16px",
+      }}
+    >
+      {/* Card header label */}
+      <div
         style={{
-          flex: 1,
-          fontSize: "var(--font-size-xs)",
-          color: "var(--color-text-muted)",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
+          fontSize: "10px",
+          fontWeight: 800,
+          color: "#9ca3af",
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          marginBottom: "12px",
         }}
       >
-        @{user.github_login}
-      </span>
-      <button
-        type="button"
-        onClick={onSignOut}
+        CURRENT REPOSITORY
+      </div>
+
+      {/* Action icons row (top right) */}
+      <div
         style={{
-          padding: "var(--space-1) var(--space-2)",
-          border: "1px solid var(--color-border)",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--color-bg-subtle)",
-          color: "var(--color-text)",
-          cursor: "pointer",
-          fontSize: "var(--font-size-xs)",
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: "10px",
+          marginBottom: "8px",
+          marginTop: "-28px",
         }}
       >
-        Sign out
-      </button>
-    </footer>
+        <button
+          type="button"
+          onClick={openOnGitHub}
+          title="Open on GitHub"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "2px",
+            color: "#6b7280",
+          }}
+        >
+          {/* External link icon */}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+            <polyline points="15 3 21 3 21 9" />
+            <line x1="10" y1="14" x2="21" y2="3" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={copyToClipboard}
+          title="Copy repo name"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            padding: "2px",
+            color: "#6b7280",
+          }}
+        >
+          {/* Copy icon */}
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Repo identity row */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
+        <div
+          style={{
+            width: "38px",
+            height: "38px",
+            borderRadius: "50%",
+            backgroundColor: "#18181b",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <GitHubIcon size={22} color="#ffffff" />
+        </div>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ fontWeight: 800, fontSize: "15px", color: "#111827" }}>
+              {repo.owner} / {repo.repo}
+            </span>
+            <span
+              style={{
+                fontSize: "10px",
+                fontWeight: 700,
+                color: "#374151",
+                backgroundColor: "#f3f4f6",
+                border: "1px solid #d1d5db",
+                borderRadius: "4px",
+                padding: "1px 5px",
+              }}
+            >
+              Public
+            </span>
+          </div>
+          {/* Branch chip */}
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px" }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="6" y1="3" x2="6" y2="15" />
+              <circle cx="18" cy="6" r="3" />
+              <circle cx="6" cy="18" r="3" />
+              <path d="M18 9a9 9 0 0 1-9 9" />
+            </svg>
+            <span style={{ fontSize: "12px", color: "#6b7280" }}>main</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Description placeholder */}
+      <p style={{ fontSize: "12.5px", color: "#6b7280", margin: "0 0 12px 0", lineHeight: 1.45 }}>
+        Navigate to a GitHub repository page to analyze its codebase.
+      </p>
+
+      {/* Detected badge */}
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "6px",
+          backgroundColor: "#166534",
+          color: "#ffffff",
+          fontSize: "12px",
+          fontWeight: 600,
+          padding: "5px 10px",
+          borderRadius: "20px",
+        }}
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        Detected from current tab
+      </div>
+    </div>
   );
 }
 
@@ -135,10 +515,16 @@ export default function App() {
   const [repo, setRepo] = useState<RepoRef | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [signingInMode, setSigningInMode] = useState<UserMode | null>(null);
-  const [signedOutStep, setSignedOutStep] = useState<"choose_mode" | "open_source_signin">("choose_mode");
+  const [signedOutStep, setSignedOutStep] = useState<
+    "choose_mode" | "open_source_signin" | "company_integrations" | "company_repo_connect" | "settings"
+  >("choose_mode");
+  const [companyStep, setCompanyStep] = useState<"integrations" | "repo_connect" | "completed">("integrations");
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [analyzeStarted, setAnalyzeStarted] = useState(false);
+  const [analyzeHovered, setAnalyzeHovered] = useState(false);
   // Bumped by the "Retry" button to re-check the session after a backend outage.
   const [sessionCheck, setSessionCheck] = useState(0);
 
@@ -213,8 +599,8 @@ export default function App() {
     }
   }, [modeInfo, activeTab]);
 
-  /** Start the GitHub OAuth flow through the backend for the chosen mode. */
-  async function handleSignIn(selectedMode: UserMode): Promise<void> {
+  /** Start the GitHub OAuth flow for the chosen mode. */
+  async function handleSignIn(selectedMode: UserMode = "open_source"): Promise<void> {
     setIsSigningIn(true);
     setSigningInMode(selectedMode);
     setSignInError(null);
@@ -239,6 +625,9 @@ export default function App() {
   /** Log out locally and server-side; a dead backend still clears the token. */
   async function handleSignOut(): Promise<void> {
     setSignedOutStep("choose_mode");
+    setCompanyStep("integrations");
+    setShowSettings(false);
+    setAnalyzeStarted(false);
     try {
       await signOut();
       setSession({ status: "signed_out" });
@@ -249,36 +638,89 @@ export default function App() {
     }
   }
 
-  /** Apply the mode/features refreshed by the ModeSwitcher. */
-  function handleModeChange(response: ModeResponse): void {
-    setModeInfo(response);
-    if (!response.features.slackShare) setDrawerOpen(false);
-  }
-
   const user = session.status === "signed_in" ? session.user : null;
 
   /* ---------------- Loading ---------------- */
   if (session.status === "loading") {
     return (
-      <div className="panel">
-        <div
-          className="panel__content"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            minHeight: "60vh",
-            color: "var(--color-text-muted)",
-          }}
-        >
-          Loading…
-        </div>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "100vh",
+          backgroundColor: "#faf7f2",
+          color: "#9ca3af",
+          fontSize: "14px",
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        }}
+      >
+        Loading…
       </div>
     );
   }
 
-  /* ---------------- Sign in ---------------- */
+  /* ---------------- Settings View (When open) ---------------- */
+  if (showSettings) {
+    return (
+      <SettingsView
+        user={user}
+        onBack={() => setShowSettings(false)}
+        onGoToHome={() => setShowSettings(false)}
+        onGoToIntegrations={() => {
+          setShowSettings(false);
+          setCompanyStep("integrations");
+        }}
+        onSignOut={() => void handleSignOut()}
+      />
+    );
+  }
+
+  /* ---------------- Sign in (Before user is signed in) ---------------- */
   if (session.status === "signed_out") {
+    // Settings screen if accessed from signed-out Company Employee flow
+    if (signedOutStep === "settings") {
+      return (
+        <SettingsView
+          user={null}
+          onBack={() => setSignedOutStep("company_repo_connect")}
+          onGoToHome={() => setSignedOutStep("company_repo_connect")}
+          onGoToIntegrations={() => setSignedOutStep("company_integrations")}
+          onSignOut={() => void handleSignOut()}
+        />
+      );
+    }
+
+    // Company Employee flow chosen: show "Connect Your Company Repository"
+    if (signedOutStep === "company_repo_connect") {
+      return (
+        <CompanyRepoConnectView
+          user={null}
+          onBack={() => setSignedOutStep("company_integrations")}
+          onGoToIntegrations={() => setSignedOutStep("company_integrations")}
+          onGoToSettings={() => setSignedOutStep("settings")}
+          onSelectRepo={(chosenRepo) => {
+            setRepo(chosenRepo);
+            void handleSignIn("company");
+          }}
+          onSignOut={() => void handleSignOut()}
+        />
+      );
+    }
+
+    // Company Employee flow chosen: show "Set up your integrations"
+    if (signedOutStep === "company_integrations") {
+      return (
+        <CompanyIntegrationsView
+          user={null}
+          onContinue={() => setSignedOutStep("company_repo_connect")}
+          onChangeMode={() => setSignedOutStep("choose_mode")}
+          onSignOut={() => void handleSignOut()}
+        />
+      );
+    }
+
+    // Open-Source flow chosen: show GitHub sign-in screen
     if (signedOutStep === "open_source_signin") {
       return (
         <OpenSourceSignInView
@@ -290,13 +732,14 @@ export default function App() {
       );
     }
 
+    // Step 1: Initial screen — "How will you use DevMinds?" (Open-Source Contributor vs Company Employee)
     return (
       <SignInView
         onSelectMode={(mode) => {
           if (mode === "open_source") {
             setSignedOutStep("open_source_signin");
           } else {
-            void handleSignIn("company");
+            setSignedOutStep("company_integrations");
           }
         }}
         onSignIn={handleSignIn}
@@ -307,9 +750,46 @@ export default function App() {
     );
   }
 
-  /* ---------------- Signed in (or offline) but not on a repo page ---------------- */
+  /* ---------------- Signed in: Company Employee Flow ---------------- */
+  if (modeInfo.mode === "company" && companyStep !== "completed") {
+    if (companyStep === "integrations") {
+      return (
+        <CompanyIntegrationsView
+          user={user}
+          onContinue={() => setCompanyStep("repo_connect")}
+          onChangeMode={async () => {
+            try {
+              const refreshed = await setMode("open_source");
+              setModeInfo(refreshed);
+            } catch {
+              setModeInfo(localModeResponse("open_source"));
+            }
+          }}
+          onSignOut={() => void handleSignOut()}
+        />
+      );
+    }
+
+    if (companyStep === "repo_connect") {
+      return (
+        <CompanyRepoConnectView
+          user={user}
+          onBack={() => setCompanyStep("integrations")}
+          onGoToIntegrations={() => setCompanyStep("integrations")}
+          onGoToSettings={() => setShowSettings(true)}
+          onSelectRepo={(chosenRepo) => {
+            setRepo(chosenRepo);
+            setCompanyStep("completed");
+          }}
+          onSignOut={() => void handleSignOut()}
+        />
+      );
+    }
+  }
+
+  /* ---------------- Signed in: Welcome screen when not on a repo page ---------------- */
   if (!repo) {
-    if (modeInfo.mode === "open_source" && user) {
+    if (user) {
       return (
         <OpenSourceWelcomeView
           user={user}
@@ -319,45 +799,176 @@ export default function App() {
     }
 
     return (
-      <div className="panel">
-        <div className="panel__content">
-          <h2 style={{ fontSize: "var(--font-size-lg)" }}>Welcome to DevMinds</h2>
-          <p style={{ color: "var(--color-text-muted)" }}>
-            Navigate to a GitHub repository to get started.
-          </p>
-          {session.status === "offline" && (
-            <p role="status" style={{ fontSize: "var(--font-size-xs)", color: "var(--color-warning)" }}>
-              Backend unreachable — showing mock data.{" "}
-              <button
-                type="button"
-                onClick={() => setSessionCheck((tick) => tick + 1)}
-                style={{
-                  padding: 0,
-                  border: "none",
-                  background: "transparent",
-                  color: "var(--color-primary)",
-                  cursor: "pointer",
-                  fontSize: "var(--font-size-xs)",
-                  textDecoration: "underline",
-                }}
-              >
-                Retry
-              </button>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minHeight: "100vh",
+          backgroundColor: "#faf7f2",
+          color: "#9ca3af",
+          fontSize: "14px",
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        }}
+      >
+        {session.status === "offline" ? (
+          <div style={{ textAlign: "center", padding: "20px" }}>
+            <p style={{ color: "#f97316", marginBottom: "12px" }}>
+              Backend unreachable — showing mock data.
             </p>
-          )}
-          {user && <SessionFooter user={user} onSignOut={() => void handleSignOut()} />}
-        </div>
+            <button
+              type="button"
+              onClick={() => setSessionCheck((tick) => tick + 1)}
+              style={{
+                padding: "8px 16px",
+                border: "1.5px solid #18181b",
+                borderRadius: "6px",
+                background: "#ffffff",
+                fontWeight: 600,
+                fontSize: "13px",
+                cursor: "pointer",
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : (
+          "Navigate to a GitHub repository to get started."
+        )}
       </div>
     );
   }
 
-  /* ---------------- The shell ---------------- */
+  /* ---------------- Signed in + Repo detected: Show Analyze Repository CTA or tabs ---------------- */
   const features = modeInfo.features;
   const visibleTabs = tabsForMode(features);
 
+  // Before "Analyze Repository" is clicked — show the repo card + Analyze button
+  if (!analyzeStarted) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "100vh",
+          backgroundColor: "#faf7f2",
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+        }}
+      >
+        <AppHeader
+          user={user}
+          onSignOut={() => void handleSignOut()}
+          onOpenSettings={() => setShowSettings(true)}
+        />
+
+        <main style={{ padding: "20px 16px 28px", flex: 1 }}>
+          <RepoCard repo={repo} />
+
+          {/* Analyze Repository CTA */}
+          <button
+            type="button"
+            id="analyze-repo-btn"
+            onClick={() => setAnalyzeStarted(true)}
+            onMouseEnter={() => setAnalyzeHovered(true)}
+            onMouseLeave={() => setAnalyzeHovered(false)}
+            style={{
+              width: "100%",
+              padding: "14px 16px",
+              backgroundColor: "#f79f24",
+              color: "#000000",
+              border: "2px solid #000000",
+              borderRadius: "8px",
+              boxShadow: analyzeHovered
+                ? "4px 4px 0px #000000"
+                : "2.5px 2.5px 0px #000000",
+              transform: analyzeHovered ? "translate(-1.5px, -1.5px)" : "translate(0, 0)",
+              fontWeight: 700,
+              fontSize: "15px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "10px",
+              transition: "all 0.12s ease-in-out",
+              marginBottom: "12px",
+            }}
+          >
+            <SparkleIcon />
+            <span>Analyze Repository</span>
+          </button>
+
+          <p
+            style={{
+              fontSize: "13px",
+              color: "#6b7280",
+              textAlign: "left",
+              margin: 0,
+              lineHeight: 1.5,
+            }}
+          >
+            Explore the project structure, important files, and architecture with AI.
+          </p>
+
+          {/* Offline banner */}
+          {session.status === "offline" && (
+            <div
+              role="status"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                alignItems: "center",
+                gap: "8px",
+                padding: "10px 12px",
+                marginTop: "16px",
+                border: "1px solid #fcd34d",
+                borderRadius: "8px",
+                background: "#fffbeb",
+                color: "#92400e",
+                fontSize: "12px",
+              }}
+            >
+              <span>Backend unreachable — showing mock data.</span>
+              <button
+                type="button"
+                onClick={() => setSessionCheck((tick) => tick + 1)}
+                style={{
+                  padding: "3px 8px",
+                  border: "1px solid #92400e",
+                  borderRadius: "4px",
+                  background: "transparent",
+                  color: "#92400e",
+                  cursor: "pointer",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </main>
+      </div>
+    );
+  }
+
+  /* ---------------- The tabbed shell (after Analyze is clicked) ---------------- */
   return (
-    <div className="panel">
-      <div className="panel__content">
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
+        backgroundColor: "#faf7f2",
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+      }}
+    >
+      <AppHeader
+        user={user}
+        onSignOut={() => void handleSignOut()}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+
+      <div style={{ padding: "16px 16px 24px" }}>
         {session.status === "offline" && (
           <div
             role="status"
@@ -365,14 +976,14 @@ export default function App() {
               display: "flex",
               flexWrap: "wrap",
               alignItems: "center",
-              gap: "var(--space-2)",
-              padding: "var(--space-2)",
-              marginBottom: "var(--space-3)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-sm)",
-              background: "var(--color-bg-subtle)",
-              color: "var(--color-text-muted)",
-              fontSize: "var(--font-size-xs)",
+              gap: "8px",
+              padding: "8px 12px",
+              marginBottom: "12px",
+              border: "1px solid #fcd34d",
+              borderRadius: "8px",
+              background: "#fffbeb",
+              color: "#92400e",
+              fontSize: "12px",
             }}
           >
             <span>Backend unreachable — showing mock data.</span>
@@ -380,13 +991,14 @@ export default function App() {
               type="button"
               onClick={() => setSessionCheck((tick) => tick + 1)}
               style={{
-                padding: "var(--space-1) var(--space-2)",
-                border: "1px solid var(--color-border)",
-                borderRadius: "var(--radius-sm)",
-                background: "var(--color-surface)",
-                color: "var(--color-text)",
+                padding: "3px 8px",
+                border: "1px solid #92400e",
+                borderRadius: "4px",
+                background: "transparent",
+                color: "#92400e",
                 cursor: "pointer",
-                fontSize: "var(--font-size-xs)",
+                fontSize: "12px",
+                fontWeight: 600,
               }}
             >
               Retry
@@ -394,37 +1006,53 @@ export default function App() {
           </div>
         )}
 
-        <RepositoryHeader repo={repo} />
-        <ModeSwitcher mode={modeInfo.mode} onChange={handleModeChange} />
-
-        {features.slackShare && (
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
+        {/* Repo title + link */}
+        <div style={{ marginBottom: "4px" }}>
+          <h2
             style={{
-              marginTop: "var(--space-2)",
-              width: "100%",
-              padding: "var(--space-2)",
-              border: "1px solid var(--color-border)",
-              borderRadius: "var(--radius-sm)",
-              background: "var(--color-bg-subtle)",
-              cursor: "pointer",
-              fontSize: "var(--font-size-sm)",
+              margin: "0 0 4px 0",
+              fontSize: "18px",
+              fontWeight: 800,
+              color: "#111827",
+              letterSpacing: "-0.02em",
             }}
           >
-            Integration Settings
+            {repo.owner} / {repo.repo}
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              const url = `https://github.com/${repo.owner}/${repo.repo}`;
+              if (typeof chrome !== "undefined" && chrome.tabs?.create) {
+                void chrome.tabs.create({ url });
+              } else {
+                window.open(url, "_blank");
+              }
+            }}
+            style={{
+              background: "none",
+              border: "none",
+              padding: 0,
+              color: "#f97316",
+              fontSize: "13px",
+              fontWeight: 600,
+              cursor: "pointer",
+              textDecoration: "none",
+            }}
+          >
+            View on GitHub ↗
           </button>
-        )}
+        </div>
 
+        {/* Tab bar */}
         <nav
           role="tablist"
           aria-label="Repository sections"
           style={{
             display: "flex",
-            flexWrap: "wrap",
-            gap: "var(--space-1)",
-            margin: "var(--space-3) 0",
-            borderBottom: "1px solid var(--color-border)",
+            gap: "0",
+            margin: "12px 0 0 0",
+            borderBottom: "2px solid #e5e0d8",
           }}
         >
           {visibleTabs.map((tab) => (
@@ -435,17 +1063,19 @@ export default function App() {
               aria-selected={activeTab === tab}
               onClick={() => setActiveTab(tab)}
               style={{
-                padding: "var(--space-2)",
+                padding: "8px 10px",
                 border: "none",
                 background: "transparent",
                 cursor: "pointer",
-                fontSize: "var(--font-size-sm)",
-                fontWeight: 600,
-                color: activeTab === tab ? "var(--color-primary)" : "var(--color-text-muted)",
+                fontSize: "13px",
+                fontWeight: 700,
+                color: activeTab === tab ? "#f97316" : "#6b7280",
                 borderBottom:
                   activeTab === tab
-                    ? "2px solid var(--color-primary)"
+                    ? "2px solid #f97316"
                     : "2px solid transparent",
+                marginBottom: "-2px",
+                transition: "color 0.1s",
               }}
             >
               {TAB_LABELS[tab]}
@@ -453,7 +1083,12 @@ export default function App() {
           ))}
         </nav>
 
-        <section role="tabpanel" aria-label={TAB_LABELS[activeTab]}>
+        {/* Tab content */}
+        <section
+          role="tabpanel"
+          aria-label={TAB_LABELS[activeTab]}
+          style={{ marginTop: "16px" }}
+        >
           {activeTab === "overview" && <OverviewTab overview={mockArchitecture.overview} />}
           {activeTab === "architecture" && <ArchitectureTab architecture={mockArchitecture} />}
           {activeTab === "contribute" && features.contributeTab && (
@@ -465,14 +1100,35 @@ export default function App() {
           {activeTab === "ask" && <AskAITab answer={mockChat} />}
         </section>
 
+        {/* Settings & Integration Drawer CTA */}
+        <button
+          type="button"
+          onClick={() => setShowSettings(true)}
+          style={{
+            marginTop: "16px",
+            width: "100%",
+            padding: "10px",
+            border: "1.5px solid #27272a",
+            borderRadius: "8px",
+            background: "#ffffff",
+            cursor: "pointer",
+            fontSize: "13px",
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+          }}
+        >
+          <span>⚙️ Settings & Privacy</span>
+        </button>
+
         <IntegrationDrawer
           integrations={mockIntegrations}
           isOpen={drawerOpen}
           onClose={() => setDrawerOpen(false)}
         />
-
-        {user && <SessionFooter user={user} onSignOut={() => void handleSignOut()} />}
       </div>
     </div>
   );
-}
+}
