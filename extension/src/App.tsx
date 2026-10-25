@@ -32,7 +32,11 @@ import { OpenSourceSignInView } from "./components/OpenSourceSignInView";
 import { OpenSourceWelcomeView } from "./components/OpenSourceWelcomeView";
 import { CompanyIntegrationsView } from "./components/CompanyIntegrationsView";
 import { CompanyRepoConnectView } from "./components/CompanyRepoConnectView";
+import { CompanyOnboardingRoadmapView } from "./components/CompanyOnboardingRoadmapView";
 import { SettingsView } from "./components/SettingsView";
+import { OpenSourceMainScreen } from "./components/OpenSourceMainScreen";
+import { OpenSourceExpandedView, type ExpandedTab } from "./components/OpenSourceExpandedView";
+import { OpenSourceAiMentorChat } from "./components/OpenSourceAiMentorChat";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { ArchitectureTab } from "./tabs/ArchitectureTab";
 import { ContributeTab } from "./tabs/ContributeTab";
@@ -525,6 +529,8 @@ export default function App() {
   const [signInError, setSignInError] = useState<string | null>(null);
   const [analyzeStarted, setAnalyzeStarted] = useState(false);
   const [analyzeHovered, setAnalyzeHovered] = useState(false);
+  const [openSourceView, setOpenSourceView] = useState<"main" | "expanded" | "ai_mentor">("main");
+  const [expandedTab, setExpandedTab] = useState<ExpandedTab>("overview");
   // Bumped by the "Retry" button to re-check the session after a backend outage.
   const [sessionCheck, setSessionCheck] = useState(0);
 
@@ -843,7 +849,41 @@ export default function App() {
   const features = modeInfo.features;
   const visibleTabs = tabsForMode(features);
 
-  // Before "Analyze Repository" is clicked — show the repo card + Analyze button
+  // For Company Employees: show "Your Onboarding Roadmap" after repo is detected and ready to analyse!
+  if (modeInfo.mode === "company" && !analyzeStarted) {
+    return (
+      <CompanyOnboardingRoadmapView
+        repo={repo}
+        user={user}
+        onExploreStep={(stepNum) => {
+          // Handled internally by CompanyOnboardingRoadmapView & CompanyOnboardingStepDetailView
+          if (stepNum === 1) setActiveTab("overview");
+          if (stepNum === 2) setActiveTab("architecture");
+          if (stepNum === 3) setActiveTab("context");
+          if (stepNum === 4) setActiveTab("overview");
+          if (stepNum === 5) setActiveTab("context");
+          if (stepNum === 6) setActiveTab("overview");
+          if (stepNum === 7) setActiveTab("context");
+          if (stepNum === 8) setActiveTab("contribute");
+        }}
+        onOpenAiMentor={() => {
+          // Handled internally by CompanyOnboardingRoadmapView to show the AI Mentor Chat
+        }}
+        onSignOut={() => void handleSignOut()}
+        onChangeMode={async () => {
+          try {
+            const refreshed = await setMode("open_source");
+            setModeInfo(refreshed);
+          } catch {
+            setModeInfo(localModeResponse("open_source"));
+          }
+        }}
+        onOpenSettings={() => setShowSettings(true)}
+      />
+    );
+  }
+
+  // Before "Analyze Repository" is clicked for open-source — show the repo card + Analyze button
   if (!analyzeStarted) {
     return (
       <div
@@ -951,7 +991,45 @@ export default function App() {
     );
   }
 
-  /* ---------------- The tabbed shell (after Analyze is clicked) ---------------- */
+  /* ---------------- Open-Source Post-Analysis Experience (Exact Full Size for All Views) ---------------- */
+  if (modeInfo.mode === "open_source") {
+    if (openSourceView === "expanded") {
+      return (
+        <OpenSourceExpandedView
+          repo={repo}
+          activeTab={expandedTab}
+          onTabChange={(tab) => setExpandedTab(tab)}
+          onClose={() => setOpenSourceView("main")}
+          onOpenAiMentor={() => {
+            setExpandedTab("ai_mentor");
+            setOpenSourceView("expanded");
+          }}
+        />
+      );
+    }
+
+    return (
+      <OpenSourceMainScreen
+        repo={repo}
+        user={user}
+        onOpenFeature={(feature) => {
+          setExpandedTab(feature);
+          setOpenSourceView("expanded");
+        }}
+        onOpenAiMentor={() => {
+          setExpandedTab("ai_mentor");
+          setOpenSourceView("expanded");
+        }}
+        onChangeMode={() => {
+          setSession({ status: "signed_out" });
+          setSignedOutStep("choose_mode");
+        }}
+        onSignOut={() => void handleSignOut()}
+      />
+    );
+  }
+
+  /* ---------------- The tabbed shell (after Analyze is clicked for company) ---------------- */
   return (
     <div
       style={{
@@ -1004,6 +1082,32 @@ export default function App() {
               Retry
             </button>
           </div>
+        )}
+
+        {/* Return to Onboarding Roadmap for company mode */}
+        {modeInfo.mode === "company" && (
+          <button
+            type="button"
+            onClick={() => setAnalyzeStarted(false)}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "5px 10px",
+              marginBottom: "12px",
+              backgroundColor: "#ffffff",
+              border: "1.5px solid #27272a",
+              borderRadius: "6px",
+              boxShadow: "1.5px 1.5px 0px #000000",
+              fontSize: "12px",
+              fontWeight: 700,
+              color: "#18181b",
+              cursor: "pointer",
+            }}
+          >
+            <span>←</span>
+            <span>Back to Onboarding Roadmap</span>
+          </button>
         )}
 
         {/* Repo title + link */}
@@ -1120,7 +1224,11 @@ export default function App() {
             gap: "8px",
           }}
         >
-          <span>⚙️ Settings & Privacy</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+          <span>Settings & Privacy</span>
         </button>
 
         <IntegrationDrawer

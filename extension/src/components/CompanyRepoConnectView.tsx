@@ -560,8 +560,11 @@ export function CompanyRepoConnectView({
                     boxSizing: "border-box",
                   }}
                 />
-                <span style={{ position: "absolute", left: "9px", top: "7px", fontSize: "12px", color: "#9ca3af" }}>
-                  🔍
+                <span style={{ position: "absolute", left: "9px", top: "8px", color: "#9ca3af", display: "flex", alignItems: "center" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
                 </span>
               </div>
 
@@ -736,7 +739,13 @@ export function CompanyRepoConnectView({
                 }}
               >
                 {isVerifying ? (
-                  <span>⏳ Verifying access...</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                      <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+                      <path d="M12 2a10 10 0 0 1 10 10" />
+                    </svg>
+                    Verifying access...
+                  </span>
                 ) : (
                   <>
                     <span>Verify and Analyze Repository</span>
@@ -817,7 +826,12 @@ export function CompanyRepoConnectView({
                 </div>
 
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-                  <span>🏢</span>
+                  <div style={{ width: "22px", height: "22px", borderRadius: "5px", backgroundColor: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", color: "#18181b" }}>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="7" width="20" height="14" rx="2" ry="2" />
+                      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+                    </svg>
+                  </div>
                   <span style={{ fontWeight: 800, fontSize: "15px", color: "#111827" }}>
                     {verifiedRepo.owner} / {verifiedRepo.repo}
                   </span>
@@ -826,15 +840,32 @@ export function CompanyRepoConnectView({
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "12.5px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#4b5563" }}>
                     <span>Language</span>
-                    <span style={{ fontWeight: 600, color: "#111827" }}>🐍 Python</span>
+                    <span style={{ fontWeight: 600, color: "#111827", display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#3572A5" }} />
+                      Python
+                    </span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#4b5563" }}>
                     <span>Default branch</span>
-                    <span style={{ fontWeight: 600, color: "#111827" }}>🌿 main</span>
+                    <span style={{ fontWeight: 600, color: "#111827", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="6" y1="3" x2="6" y2="15" />
+                        <circle cx="18" cy="6" r="3" />
+                        <circle cx="6" cy="18" r="3" />
+                        <path d="M18 9a9 9 0 0 1-9 9" />
+                      </svg>
+                      main
+                    </span>
                   </div>
                   <div style={{ display: "flex", justifyContent: "space-between", color: "#4b5563" }}>
                     <span>Owner</span>
-                    <span style={{ fontWeight: 600, color: "#111827" }}>👤 {verifiedRepo.owner}</span>
+                    <span style={{ fontWeight: 600, color: "#111827", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                      {verifiedRepo.owner}
+                    </span>
                   </div>
                 </div>
               </div>
