@@ -18,20 +18,28 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import gettempdir
-from typing import Annotated
+from typing import Annotated, Any, Optional
 from urllib.parse import urlencode, urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.core.modes import CurrentUser
+from app.core.modes import CurrentUser, UserMode
 from app.core.security import (
     create_session_token,
+    find_or_create_provider_user,
     find_or_create_user,
     get_current_user,
     revoke_session_token,
+)
+from app.integrations.auth_verifier import (
+    AtlassianOAuthHelper,
+    ConfluenceAuthClient,
+    JiraAuthClient,
+    SlackAuthClient,
 )
 from app.schemas.common import DetailResponse
 
@@ -321,14 +329,287 @@ def github_oauth_callback(code: str, state: str | None = Query(default=None)) ->
     return RedirectResponse(f"{target_redirect_uri}#{fragment}", status_code=status.HTTP_302_FOUND)
 
 
+# ==============================================================================
+# Real Account Login Models & Endpoints (Jira, Confluence, Slack)
+# ==============================================================================
+
+class JiraLoginRequest(BaseModel):
+    """Credentials for Jira login; falls back to environment variables if omitted."""
+    email: Optional[str] = None
+    api_token: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class ConfluenceLoginRequest(BaseModel):
+    """Credentials for Confluence login; falls back to environment variables if omitted."""
+    email: Optional[str] = None
+    api_token: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class SlackLoginRequest(BaseModel):
+    """Credentials for Slack login; falls back to environment variables if omitted."""
+    token: Optional[str] = None
+
+
+class ProviderLoginRequest(BaseModel):
+    """Unified login request supporting jira, confluence, or slack."""
+    provider: str = Field(description="jira, confluence, or slack")
+    email: Optional[str] = None
+    api_token: Optional[str] = None
+    base_url: Optional[str] = None
+    token: Optional[str] = None
+
+
+class UserPayload(BaseModel):
+    id: str
+    github_login: str
+    display_name: str
+    email: str
+    avatar_url: str
+    mode: str
+    provider: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    user: UserPayload
+
+
+@router.post("/login/jira", response_model=LoginResponse)
+def login_with_jira(payload: Optional[JiraLoginRequest] = None) -> LoginResponse:
+    """Log in to DevMinds with a real Jira Cloud account.
+
+    Authenticates against Jira /rest/api/3/myself, registers the user, assigns
+    company mode, and returns a signed HS256 session token.
+    """
+    req = payload or JiraLoginRequest()
+    client = JiraAuthClient(
+        base_url=req.base_url,
+        email=req.email,
+        api_token=req.api_token,
+    )
+    result = client.verify_auth()
+    if not result.success:
+        err_detail = result.message
+        if result.errors:
+            err_detail += f" ({'; '.join(result.errors)})"
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=err_detail)
+
+    account_id = str(result.identity.get("account_id") or "jira_user")
+    display_name = str(result.identity.get("display_name") or "Jira User")
+    email = str(result.identity.get("email_address") or "")
+
+    user = find_or_create_provider_user(
+        provider="jira",
+        provider_id=account_id,
+        display_name=display_name,
+        email=email,
+        mode=UserMode.company,
+        access_token=req.api_token or "",
+    )
+    session_token = create_session_token(user.id)
+    return LoginResponse(
+        token=session_token,
+        user=UserPayload(
+            id=user.id,
+            github_login=user.github_login,
+            display_name=user.display_name or user.github_login,
+            email=user.email,
+            avatar_url=user.avatar_url,
+            mode=user.mode.value,
+            provider="jira",
+        ),
+    )
+
+
+@router.post("/login/confluence", response_model=LoginResponse)
+def login_with_confluence(payload: Optional[ConfluenceLoginRequest] = None) -> LoginResponse:
+    """Log in to DevMinds with a real Confluence Cloud account."""
+    req = payload or ConfluenceLoginRequest()
+    client = ConfluenceAuthClient(
+        base_url=req.base_url,
+        email=req.email,
+        api_token=req.api_token,
+    )
+    result = client.verify_auth()
+    if not result.success:
+        err_detail = result.message
+        if result.errors:
+            err_detail += f" ({'; '.join(result.errors)})"
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=err_detail)
+
+    account_id = str(result.identity.get("account_id") or "confluence_user")
+    display_name = str(result.identity.get("display_name") or "Confluence User")
+    email = str(result.identity.get("email_address") or "")
+
+    user = find_or_create_provider_user(
+        provider="confluence",
+        provider_id=account_id,
+        display_name=display_name,
+        email=email,
+        mode=UserMode.company,
+        access_token=req.api_token or "",
+    )
+    session_token = create_session_token(user.id)
+    return LoginResponse(
+        token=session_token,
+        user=UserPayload(
+            id=user.id,
+            github_login=user.github_login,
+            display_name=user.display_name or user.github_login,
+            email=user.email,
+            avatar_url=user.avatar_url,
+            mode=user.mode.value,
+            provider="confluence",
+        ),
+    )
+
+
+@router.post("/login/slack", response_model=LoginResponse)
+def login_with_slack(payload: Optional[SlackLoginRequest] = None) -> LoginResponse:
+    """Log in to DevMinds with a real Slack Bot or User account."""
+    req = payload or SlackLoginRequest()
+    client = SlackAuthClient(bot_token=req.token)
+    result = client.verify_auth()
+    if not result.success:
+        err_detail = result.message
+        if result.errors:
+            err_detail += f" ({'; '.join(result.errors)})"
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=err_detail)
+
+    user_id = str(result.identity.get("user_id") or "slack_user")
+    user_name = str(result.identity.get("user_name") or "Slack User")
+    team_name = str(result.identity.get("team_name") or "")
+    display_name = f"{user_name} ({team_name})" if team_name else user_name
+
+    user = find_or_create_provider_user(
+        provider="slack",
+        provider_id=user_id,
+        display_name=display_name,
+        mode=UserMode.company,
+        access_token=req.token or "",
+    )
+    session_token = create_session_token(user.id)
+    return LoginResponse(
+        token=session_token,
+        user=UserPayload(
+            id=user.id,
+            github_login=user.github_login,
+            display_name=user.display_name or user.github_login,
+            email=user.email,
+            avatar_url=user.avatar_url,
+            mode=user.mode.value,
+            provider="slack",
+        ),
+    )
+
+
+@router.post("/login", response_model=LoginResponse)
+def login_with_provider(payload: ProviderLoginRequest) -> LoginResponse:
+    """Unified login dispatcher for Jira, Confluence, and Slack."""
+    provider = payload.provider.lower().strip()
+    if provider == "jira":
+        return login_with_jira(JiraLoginRequest(email=payload.email, api_token=payload.api_token, base_url=payload.base_url))
+    elif provider == "confluence":
+        return login_with_confluence(ConfluenceLoginRequest(email=payload.email, api_token=payload.api_token, base_url=payload.base_url))
+    elif provider == "slack":
+        return login_with_slack(SlackLoginRequest(token=payload.token or payload.api_token))
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported provider: {provider}")
+
+
+# ==============================================================================
+# Atlassian OAuth 2.0 (3LO) Routes
+# ==============================================================================
+
+@router.get("/atlassian")
+def start_atlassian_oauth(redirect_uri: Optional[str] = Query(default=None)) -> RedirectResponse:
+    """Start 3-legged OAuth flow with Atlassian Cloud."""
+    client_id = os.getenv("ATLASSIAN_CLIENT_ID", "").strip()
+    callback_uri = os.getenv("ATLASSIAN_REDIRECT_URI", "http://localhost:8000/api/auth/atlassian/callback").strip()
+    if not client_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ATLASSIAN_CLIENT_ID is not configured in .env",
+        )
+    validated_target = validate_extension_redirect_uri(redirect_uri)
+    auth_url = AtlassianOAuthHelper.build_authorization_url(
+        client_id=client_id,
+        redirect_uri=callback_uri,
+        state=_create_state(validated_target),
+    )
+    return RedirectResponse(auth_url, status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/atlassian/callback")
+def atlassian_oauth_callback(code: str, state: Optional[str] = Query(default=None)) -> RedirectResponse:
+    """Exchange Atlassian authorization code, discover identity, and create session."""
+    target_redirect_uri = _consume_state(state)
+    client_id = os.getenv("ATLASSIAN_CLIENT_ID", "").strip()
+    client_secret = os.getenv("ATLASSIAN_CLIENT_SECRET", "").strip()
+    callback_uri = os.getenv("ATLASSIAN_REDIRECT_URI", "http://localhost:8000/api/auth/atlassian/callback").strip()
+
+    try:
+        tokens = AtlassianOAuthHelper.exchange_code_for_token(
+            client_id=client_id,
+            client_secret=client_secret,
+            code=code,
+            redirect_uri=callback_uri,
+        )
+        access_token = tokens["access_token"]
+        # Fetch profile from Atlassian /me
+        resp = httpx.get(
+            "https://api.atlassian.com/me",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=15.0,
+        )
+        if resp.status_code == 200:
+            profile = resp.json()
+            account_id = profile.get("account_id") or profile.get("sub", "atlassian_user")
+            display_name = profile.get("name") or "Atlassian User"
+            email = profile.get("email", "")
+            avatar_url = profile.get("picture", "")
+        else:
+            # Fallback to accessible-resources
+            resources = AtlassianOAuthHelper.discover_accessible_resources(access_token)
+            site_name = resources[0]["name"] if resources else "Atlassian"
+            account_id = f"atlassian_{site_name}"
+            display_name = f"User ({site_name})"
+            email = ""
+            avatar_url = ""
+
+        user = find_or_create_provider_user(
+            provider="atlassian",
+            provider_id=account_id,
+            display_name=display_name,
+            email=email,
+            avatar_url=avatar_url,
+            mode=UserMode.company,
+            access_token=access_token,
+        )
+        session_token = create_session_token(user.id)
+        fragment = urlencode({"token": session_token})
+        return RedirectResponse(f"{target_redirect_uri}#{fragment}", status_code=status.HTTP_302_FOUND)
+
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Atlassian OAuth exchange failed: {exc}",
+        )
+
+
 @router.get("/me")
-def read_me(user: CurrentUser = Depends(get_current_user)) -> dict[str, str]:
+def read_me(user: CurrentUser = Depends(get_current_user)) -> dict[str, Any]:
     """Return the currently signed-in user and their server-side mode."""
     return {
         "id": user.id,
         "github_login": user.github_login,
+        "display_name": user.display_name or user.github_login,
+        "email": user.email,
         "avatar_url": user.avatar_url,
         "mode": user.mode.value,
+        "provider": user.provider,
     }
 
 
@@ -338,3 +619,4 @@ def logout(authorization: Annotated[str | None, Header()] = None) -> DetailRespo
     if authorization and authorization.startswith("Bearer "):
         revoke_session_token(authorization.removeprefix("Bearer ").strip())
     return DetailResponse(detail="Logged out")
+

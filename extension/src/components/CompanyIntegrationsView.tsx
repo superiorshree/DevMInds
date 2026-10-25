@@ -6,7 +6,12 @@
  */
 
 import { useState } from "react";
-import type { SessionUser } from "../services/api";
+import {
+  signInWithJira,
+  signInWithConfluence,
+  signInWithSlack,
+  type SessionUser,
+} from "../services/api";
 
 export interface CompanyIntegrationsViewProps {
   user?: SessionUser | null;
@@ -54,13 +59,41 @@ export function CompanyIntegrationsView({
   const [menuOpen, setMenuOpen] = useState(false);
   const [hoveredButton, setHoveredButton] = useState<string | null>(null);
   const [continueHovered, setContinueHovered] = useState(false);
+  const [loadingProvider, setLoadingProvider] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; error: boolean } | null>(null);
 
-  const toggleConnection = (id: "jira" | "confluence" | "slack") => {
-    setIntegrations((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, connected: !item.connected } : item
-      )
-    );
+  const toggleConnection = async (id: "jira" | "confluence" | "slack") => {
+    const current = integrations.find((item) => item.id === id);
+    if (current?.connected) {
+      setIntegrations((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, connected: false } : item))
+      );
+      setFeedbackMessage({ text: `${id.toUpperCase()} disconnected.`, error: false });
+      return;
+    }
+
+    setLoadingProvider(id);
+    setFeedbackMessage(null);
+    try {
+      let loggedUser: SessionUser;
+      if (id === "jira") {
+        loggedUser = await signInWithJira();
+      } else if (id === "confluence") {
+        loggedUser = await signInWithConfluence();
+      } else {
+        loggedUser = await signInWithSlack();
+      }
+      setIntegrations((prev) =>
+        prev.map((item) => (item.id === id ? { ...item, connected: true } : item))
+      );
+      const name = loggedUser.github_login || loggedUser.id;
+      setFeedbackMessage({ text: `Successfully logged in to ${id.toUpperCase()} (${name})!`, error: false });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Authentication failed.";
+      setFeedbackMessage({ text: `Failed to connect ${id.toUpperCase()}: ${msg}`, error: true });
+    } finally {
+      setLoadingProvider(null);
+    }
   };
 
   const initial = user?.github_login
@@ -472,12 +505,17 @@ export function CompanyIntegrationsView({
 
             <button
               type="button"
-              onClick={() => toggleConnection("jira")}
+              disabled={loadingProvider !== null}
+              onClick={() => void toggleConnection("jira")}
               onMouseEnter={() => setHoveredButton("jira")}
               onMouseLeave={() => setHoveredButton(null)}
               style={getButtonStyle("jira", integrations[0].connected)}
             >
-              {integrations[0].connected ? "Connected" : "Disconnected"}
+              {loadingProvider === "jira"
+                ? "Connecting…"
+                : integrations[0].connected
+                ? "Connected ✓"
+                : "Connect"}
             </button>
           </div>
 
@@ -533,12 +571,17 @@ export function CompanyIntegrationsView({
 
             <button
               type="button"
-              onClick={() => toggleConnection("confluence")}
+              disabled={loadingProvider !== null}
+              onClick={() => void toggleConnection("confluence")}
               onMouseEnter={() => setHoveredButton("confluence")}
               onMouseLeave={() => setHoveredButton(null)}
               style={getButtonStyle("confluence", integrations[1].connected)}
             >
-              {integrations[1].connected ? "Connected" : "Disconnected"}
+              {loadingProvider === "confluence"
+                ? "Connecting…"
+                : integrations[1].connected
+                ? "Connected ✓"
+                : "Connect"}
             </button>
           </div>
 
@@ -594,15 +637,40 @@ export function CompanyIntegrationsView({
 
             <button
               type="button"
-              onClick={() => toggleConnection("slack")}
+              disabled={loadingProvider !== null}
+              onClick={() => void toggleConnection("slack")}
               onMouseEnter={() => setHoveredButton("slack")}
               onMouseLeave={() => setHoveredButton(null)}
               style={getButtonStyle("slack", integrations[2].connected)}
             >
-              {integrations[2].connected ? "Connected" : "Disconnected"}
+              {loadingProvider === "slack"
+                ? "Connecting…"
+                : integrations[2].connected
+                ? "Connected ✓"
+                : "Connect"}
             </button>
           </div>
         </div>
+
+        {/* Feedback Alert */}
+        {feedbackMessage && (
+          <div
+            role="alert"
+            style={{
+              marginBottom: "16px",
+              padding: "12px 14px",
+              backgroundColor: feedbackMessage.error ? "#fef2f2" : "#f0fdf4",
+              border: `1.5px solid ${feedbackMessage.error ? "#f87171" : "#86efac"}`,
+              borderRadius: "8px",
+              color: feedbackMessage.error ? "#991b1b" : "#166534",
+              fontSize: "13px",
+              lineHeight: 1.4,
+              fontWeight: 500,
+            }}
+          >
+            {feedbackMessage.text}
+          </div>
+        )}
 
         {/* Info Box */}
         <div

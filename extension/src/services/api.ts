@@ -176,6 +176,54 @@ export async function signIn(): Promise<SessionUser> {
   return getMe();
 }
 
+export interface ProviderLoginCredentials {
+  email?: string;
+  api_token?: string;
+  base_url?: string;
+  token?: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: SessionUser;
+}
+
+/**
+ * Sign in directly with real Jira Cloud account credentials.
+ */
+export async function signInWithJira(credentials?: ProviderLoginCredentials): Promise<SessionUser> {
+  const res = await request<LoginResponse>("/api/auth/login/jira", {
+    method: "POST",
+    body: JSON.stringify(credentials ?? {}),
+  });
+  await storeSessionToken(res.token);
+  return res.user;
+}
+
+/**
+ * Sign in directly with real Confluence Cloud account credentials.
+ */
+export async function signInWithConfluence(credentials?: ProviderLoginCredentials): Promise<SessionUser> {
+  const res = await request<LoginResponse>("/api/auth/login/confluence", {
+    method: "POST",
+    body: JSON.stringify(credentials ?? {}),
+  });
+  await storeSessionToken(res.token);
+  return res.user;
+}
+
+/**
+ * Sign in directly with real Slack account credentials.
+ */
+export async function signInWithSlack(credentials?: ProviderLoginCredentials): Promise<SessionUser> {
+  const res = await request<LoginResponse>("/api/auth/login/slack", {
+    method: "POST",
+    body: JSON.stringify(credentials ?? {}),
+  });
+  await storeSessionToken(res.token);
+  return res.user;
+}
+
 /** Log out server-side and clear the local session token. */
 export async function signOut(): Promise<void> {
   try {
@@ -184,6 +232,7 @@ export async function signOut(): Promise<void> {
     await clearSessionToken();
   }
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Mode                                                                */

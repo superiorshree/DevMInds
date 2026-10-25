@@ -32,7 +32,7 @@ SESSION_TTL = timedelta(days=7)
 class StoredUser:
     """A user row as persisted server-side (in memory for now).
 
-    The GitHub token is stored here and NEVER returned to the client.
+    The auth tokens are stored here and NEVER returned to the client.
     """
 
     id: str
@@ -40,6 +40,9 @@ class StoredUser:
     avatar_url: str
     mode: UserMode
     github_token: str = ""
+    display_name: str = ""
+    email: str = ""
+    provider: str = "github"
 
     def to_current_user(self) -> CurrentUser:
         """Project the stored user onto the public CurrentUser shape."""
@@ -48,6 +51,9 @@ class StoredUser:
             github_login=self.github_login,
             avatar_url=self.avatar_url,
             mode=self.mode,
+            display_name=self.display_name or self.github_login,
+            email=self.email,
+            provider=self.provider,
         )
 
 
@@ -78,13 +84,55 @@ def find_or_create_user(
             avatar_url=avatar_url,
             mode=UserMode.open_source,
             github_token=github_token,
+            display_name=login,
+            provider="github",
         )
         _USERS[user_id] = record
     else:
         # Refresh profile fields on every sign-in; never touch the mode.
         record.github_login = login
+        record.display_name = login
         record.avatar_url = avatar_url
         record.github_token = github_token
+    return record.to_current_user()
+
+
+def find_or_create_provider_user(
+    provider: str,
+    provider_id: str,
+    display_name: str,
+    email: str = "",
+    avatar_url: str = "",
+    mode: UserMode = UserMode.company,
+    access_token: str = "",
+) -> CurrentUser:
+    """Return the user for an external provider (Jira, Confluence, Slack), creating them on sign-in.
+
+    Enterprise logins (Jira, Confluence, Slack) default to company mode.
+    """
+    user_id = f"usr_{provider}_{provider_id}"
+    record = _USERS.get(user_id)
+    if record is None:
+        record = StoredUser(
+            id=user_id,
+            github_login=display_name,
+            avatar_url=avatar_url,
+            mode=mode,
+            github_token=access_token,
+            display_name=display_name,
+            email=email,
+            provider=provider,
+        )
+        _USERS[user_id] = record
+    else:
+        record.github_login = display_name
+        record.display_name = display_name
+        if avatar_url:
+            record.avatar_url = avatar_url
+        if access_token:
+            record.github_token = access_token
+        if email:
+            record.email = email
     return record.to_current_user()
 
 
@@ -113,7 +161,9 @@ def github_token_for(user_id: str) -> str:
 
 def _session_secret() -> str:
     """Return the HS256 signing secret, refusing to run when it is not set."""
-    secret = get_settings().session_secret
+    import os
+
+    secret = get_settings().session_secret or os.getenv("SESSION_SECRET", "")
     if not secret:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

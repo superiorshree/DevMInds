@@ -62,6 +62,9 @@ class CurrentUser:
     github_login: str
     avatar_url: str
     mode: UserMode
+    display_name: str = ""
+    email: str = ""
+    provider: str = "github"
 
 
 def mode_for_user(user: CurrentUser) -> UserMode:
