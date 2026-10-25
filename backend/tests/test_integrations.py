@@ -29,7 +29,7 @@ from app.integrations import CompanyContext, get_company_context, integration_st
 from app.integrations.base import AdapterError, IntegrationAdapter, RateLimitError
 from app.integrations.confluence import ConfluenceAdapter
 from app.integrations.github import GitHubAdapter
-from app.integrations.jira import JiraAdapter
+from app.integrations.jira import JiraConnector
 from app.integrations.slack import SlackAdapter
 
 
@@ -42,10 +42,10 @@ def _session_secret(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 #: Every connector the repository ships, keyed by their provider name.
-ALL_ADAPTERS = [GitHubAdapter, JiraAdapter, ConfluenceAdapter, SlackAdapter]
+ALL_ADAPTERS = [GitHubAdapter, JiraConnector, ConfluenceAdapter, SlackAdapter]
 
 #: Adapters documented as read-only: they must never write to the provider.
-READ_ONLY_ADAPTERS = [GitHubAdapter, JiraAdapter, ConfluenceAdapter]
+READ_ONLY_ADAPTERS = [GitHubAdapter, JiraConnector, ConfluenceAdapter]
 
 
 class TestConnectorInterface:
@@ -76,7 +76,7 @@ class TestConnectorInterface:
 
     def test_jira_is_a_read_only_connector(self) -> None:
         """The Jira connector is read-only by contract (no writes to Jira)."""
-        jira = JiraAdapter()
+        jira = JiraConnector()
         assert jira.provider == "jira"
         with pytest.raises(NotImplementedError):
             jira.send({"key": "DEV-101"})
@@ -143,8 +143,8 @@ class TestMockCompanyContext:
         def _fail(*args: object, **kwargs: object) -> object:
             raise AssertionError("real Jira connector was called in mock mode")
 
-        monkeypatch.setattr(JiraAdapter, "fetch", _fail)
-        monkeypatch.setattr(JiraAdapter, "check_connection", _fail)
+        monkeypatch.setattr(JiraConnector, "fetch", _fail)
+        monkeypatch.setattr(JiraConnector, "check_connection", _fail)
 
         ctx = get_company_context("someone/somerepo", "query", "company")
         assert isinstance(ctx, CompanyContext)
@@ -191,20 +191,57 @@ class TestMockIntegrationConfig:
     def test_mock_flag_off_refuses_stub_company_context(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """With USE_MOCK_INTEGRATIONS=false the dispatcher must not serve sample data.
-
-        No real dispatcher exists yet, so it fails loudly (NotImplementedError)
-        instead of returning fake company context as if it were real.
+        """With USE_MOCK_INTEGRATIONS=false the real connectors run, no sample data.
+        Unconfigured Jira (empty JIRA_* settings) returns NOT_CONNECTED;
+        the .env file has defaults, so this test patches the settings after clearing
+        the cache so the connector sees an unconfigured state.
         """
         monkeypatch.setenv("USE_MOCK_INTEGRATIONS", "false")
         get_settings.cache_clear()
         try:
-            with pytest.raises(NotImplementedError):
-                get_company_context("someone/somerepo", "query", "company")
+            # Patch get_settings to return empty JIRA fields so the connector
+            # sees unconfigured state instead of .env defaults.
+            from unittest.mock import patch
+            import app.core.config as cfg_mod
+            original_get = cfg_mod.get_settings
+            # Create a settings object with empty jira fields
+            from pydantic_settings import SettingsConfigDict
+            mock_settings = type('Settings', (), {
+                'model_config': SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore"),
+                'use_mock_integrations': False,
+                'cors_origins_list': [],
+                'session_secret': 'test',
+                'debug': False,
+                'backend_host': 'localhost',
+                'backend_port': 8000,
+                'github_client_id': '',
+                'github_client_secret': '',
+                'github_redirect_uri': 'http://localhost:8000/api/auth/github/callback',
+                'extension_redirect_uri': '',
+                'ai_chat_enabled': True,
+                'ollama_base_url': 'http://localhost:11434',
+                'ollama_model': 'llama3.2:3b',
+                'ollama_timeout_seconds': 60,
+                'external_llm_base_url': '',
+                'external_llm_api_key': '',
+                'external_llm_model': '',
+                'external_llm_timeout_seconds': 30,
+                'allow_external_for_company': False,
+                'jira_base_url': '',
+                'jira_email': '',
+                'jira_api_token': '',
+                'cors_origins': '',
+            })()
+            cfg_mod.get_settings = lambda: mock_settings
+            ctx = get_company_context("someone/somerepo", "query", "company")
+            assert ctx.items == [], "no fake items without mock mode"
+            assert all(error.code == "NOT_CONNECTED" for error in ctx.errors)
             # The mode gate still fires first — company mode only, always.
             with pytest.raises(PermissionError):
                 get_company_context("someone/somerepo", "query", "open_source")
         finally:
+            # Restore original get_settings
+            cfg_mod.get_settings = original_get
             get_settings.cache_clear()
 
 

@@ -2,8 +2,9 @@
 # Owner:       Shreyansh (context route gated for Devyani's context service)
 # Purpose:     Routes for analyzing a repository and fetching its architecture, saved links and context.
 # Contains:    FastAPI APIRouter with analyze, architecture, links GET/PUT and context routes.
-# Status:      STUB, replace TODOs with real implementation
-# Depends on:  backend/app/core/modes.py, backend/app/services/*, backend/app/schemas/*
+# Status:      REAL for the architecture route (real GitHub analysis + 429/502 mapping); analyze/links/context still stubs with TODOs.
+# Depends on:  backend/app/core/modes.py, backend/app/services/*, backend/app/schemas/*,
+#              backend/app/core/security.py (github_token_for), backend/app/integrations/base.py (errors)
 
 """Repository routes.
 
@@ -15,13 +16,14 @@ Contributor mode. Analyze uses the SERVER-SIDE mode, never a mode in the body.
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.modes import CurrentUser, require_feature
-from app.core.security import get_current_user
+from app.core.security import get_current_user, github_token_for
 from app.schemas.architecture import ArchitectureBundle
 from app.schemas.common import (
     AnalyzeRequest,
     AnalyzeResponse,
     LinkList,
 )
+from app.integrations.base import AdapterError, RateLimitError
 from app.services.architecture_service import get_architecture
 from app.services.context_service import get_related_context
 
@@ -50,9 +52,25 @@ def analyze(body: AnalyzeRequest, user: CurrentUser = Depends(get_current_user))
 def get_repo_architecture(
     owner: str, repo: str, user: CurrentUser = Depends(get_current_user)
 ) -> ArchitectureBundle:
-    """Return the analysis bundle for a repository (mode-tailored)."""
+    """Return the analysis bundle for a repository (mode-tailored).
+
+    Uses the server-side GitHub token (never sent to the browser). Rate
+    limits answer 429, other GitHub failures 502/404 with a plain message.
+    """
     # TODO(Shreyansh): load the cached analysis (404 when not analyzed yet).
-    return get_architecture(owner, repo, branch="main", mode=user.mode)
+    try:
+        return get_architecture(
+            owner,
+            repo,
+            branch="main",
+            mode=user.mode,
+            github_token=github_token_for(user.id),
+        )
+    except RateLimitError as exc:
+        raise HTTPException(status_code=429, detail=exc.message)
+    except AdapterError as exc:
+        status_code = 404 if exc.code == "not_found" else 502
+        raise HTTPException(status_code=status_code, detail=exc.message)
 
 
 @router.get("/{owner}/{repo}/links", response_model=LinkList)

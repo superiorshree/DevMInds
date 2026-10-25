@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.modes import CurrentUser, UserMode, mode_has_feature, require_feature
 from app.core.security import get_current_user
+from app.integrations import integration_status
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -45,8 +46,11 @@ def _require_provider_access(provider: str, user: CurrentUser) -> None:
 def list_integrations(user: CurrentUser = Depends(get_current_user)) -> dict[str, list[dict[str, object]]]:
     """List providers with availability + connection status.
 
-    TODO(Kunal): query each adapter's check_connection() for real status.
+    Availability comes from the server-side mode; `connected` comes from the
+    connectors themselves (their config/credential check), so unavailable
+    providers are never queried at all.
     """
+    statuses = integration_status()
     providers = [
         ("github", ""),
         ("jira", "jira"),
@@ -56,11 +60,12 @@ def list_integrations(user: CurrentUser = Depends(get_current_user)) -> dict[str
     out = []
     for name, feature in providers:
         available = not feature or mode_has_feature(user.mode, feature)
+        connected = available and statuses.get(name, "not_connected") == "connected"
         out.append(
             {
                 "provider": name,
                 "available": available,
-                "connected": False,
+                "connected": connected,
                 "detail": "" if available else f"Requires feature '{feature}'",
             }
         )

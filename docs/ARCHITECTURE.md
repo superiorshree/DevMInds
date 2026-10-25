@@ -91,7 +91,7 @@ sequenceDiagram
 
     Ext->>API: GET /api/repositories/x/y/context (session cookie)
     API->>Sec: get_current_user() — WHO is this? (authn)
-    Sec-->>API: CurrentUser(mode="open_contributor")
+    Sec-->>API: CurrentUser(mode="open_source")
     API->>Modes: require_feature("contextTab") — MAY they? (authz)
     Modes-->>API: HTTP 403 Feature 'contextTab' not available
     API-->>Ext: 403
