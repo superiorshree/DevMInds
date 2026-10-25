@@ -17,14 +17,13 @@ from typing import Any, Dict, List, Literal
 
 from app.core.config import get_settings
 from app.schemas.contracts import AIAnswer, AIError
+from app.ai import gateway
 from app.ai.errors import PrivateAIUnavailable, ExternalNotAllowed, ProviderError
-from app.ai.gateway import classify
 from app.ai.ollama_provider import OllamaProvider
 from app.ai.external_provider import ExternalLLMProvider
 
 # The frozen contract is the single definition: this module must never redeclare
 # its own AIAnswer/AIError (duplicate interfaces drift out of sync).
-from app.schemas.contracts import AIAnswer, AIError
 
 __all__ = ["AIAnswer", "AIError", "AIService", "get_ai_service"]
 HealthStatus = Literal["up", "down", "model_missing", "not_configured"]
@@ -34,10 +33,10 @@ class AIService:
     """Answers questions about a repository, respecting the privacy rule.
 
     The backend decides everything from the saved session; the browser never
-    picks a provider. Private data (private repo or any Jira/Slack/Confluence
-    item) goes to the local Ollama ONLY. Public data uses the external AI.
-    If the chosen provider is unavailable the answer is disabled with the
-    matching error — we NEVER fall back to the other provider.
+    picks a provider. Every provider call goes through gateway.complete(), which
+    routes private data to Ollama ONLY, public data to the external AI, and
+    removes secrets from the messages first. We NEVER fall back to the other
+    provider.
     """
 
     async def answer(
@@ -50,11 +49,11 @@ class AIService:
         """Answer `question` about the given repository/company context.
 
         Args:
-            question: the user's question (untrusted text — treat as data).
+            question: the user's question (untrusted text, treat as data).
             repository_context: frozen RepositoryContext (or dict) with
                 visibility, analysis and files.
             company_context: list of frozen CompanyItem (Jira/Slack/Confluence).
-            mode: the server-side session mode ("open_source" or "company").
+            mode: the server-side session mode.
 
         Returns:
             AIAnswer with the text, provider and, on failure, an AIError
@@ -66,33 +65,22 @@ class AIService:
                 error=AIError(code="AI_DISABLED", message="AI chat is disabled by configuration.")
             )
 
-        if classify(repository_context, company_context) == "private":
-            return await self._answer_private(question)
-        return await self._answer_public(question)
+        # Only used to label the answer. The gateway makes the real routing decision.
+        is_private = gateway.classify(repository_context, company_context) == "private"
+        provider_name = "ollama" if is_private else "external"
 
-    async def _answer_private(self, question: str) -> AIAnswer:
-        """Private data → Ollama only. Never the external AI."""
+        # TODO(Devyani): build the real messages (system prompt + marked data
+        # block + sources) when the Mentor task is written.
         messages = [{"role": "user", "content": question}]
+
         try:
-            text = await OllamaProvider().generate(messages)
-            return AIAnswer(answer=text, provider="ollama")
+            text = await gateway.complete(messages, repository_context, company_context)
+            return AIAnswer(answer=text, provider=provider_name)
         except PrivateAIUnavailable:
             return AIAnswer(
                 provider="ollama",
                 error=AIError(code="PRIVATE_AI_UNAVAILABLE", message=await self._private_hint()),
             )
-        except ProviderError as exc:
-            return AIAnswer(
-                provider="ollama",
-                error=AIError(code="PROVIDER_ERROR", message=exc.message),
-            )
-
-    async def _answer_public(self, question: str) -> AIAnswer:
-        """Public data (no company items) → external AI only."""
-        messages = [{"role": "user", "content": question}]
-        try:
-            text = await ExternalLLMProvider().generate(messages)
-            return AIAnswer(answer=text, provider="external")
         except ExternalNotAllowed as exc:
             return AIAnswer(
                 provider="external",
@@ -100,7 +88,7 @@ class AIService:
             )
         except ProviderError as exc:
             return AIAnswer(
-                provider="external",
+                provider=provider_name,
                 error=AIError(code="PROVIDER_ERROR", message=exc.message),
             )
 

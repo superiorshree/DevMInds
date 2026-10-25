@@ -1,19 +1,58 @@
 # File:        backend/app/integrations/base.py
-# Owner:       Shreyansh
-# Purpose:     Defines the shared interface every external-service adapter (GitHub, Jira, Confluence, Slack) must implement.
-# Contains:    IntegrationAdapter abstract base class, AdapterError and RateLimitError exceptions.
-# Status:      STUB, replace TODOs with real implementation
-# Depends on:  (none — this is the base contract)
+# Owner:       Shreyansh (IntegrationAdapter) / Kunal (BaseConnector)
+# Purpose:     Defines the shared interfaces every integration implements: BaseConnector for the company connectors, IntegrationAdapter for provider adapters.
+# Contains:    BaseConnector abstract base class (async fetch -> CompanyContext), IntegrationAdapter abstract base class, AdapterError and RateLimitError exceptions.
+# Status:      BaseConnector REAL — used by get_company_context(); IntegrationAdapter is the provider adapter contract.
+# Depends on:  backend/app/schemas/contracts.py (CompanyContext)
 
-"""The adapter interface.
+"""The integration interfaces.
 
-Each external service lives in its own adapter implementing this interface, so
-every adapter behaves the same way: check connection, fetch or send, return
-clean data with source links, and surface errors/rate limits uniformly.
+Two contracts live in this module:
+
+- ``BaseConnector`` — what the company connectors (Jira, Slack, Confluence)
+  implement, so ``get_company_context()`` can run them all the same way and
+  collect their failures uniformly.
+- ``IntegrationAdapter`` — the provider adapter contract (GitHub and the rest):
+  check connection, fetch or send, return clean data with source links, and
+  surface errors/rate limits uniformly.
 """
 
+
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Literal
+
+from app.schemas.contracts import CompanyContext
+
+
+class BaseConnector(ABC):
+    """Base class for every company integration connector.
+
+    Connectors return the frozen ``CompanyContext`` from the contracts module.
+    They never raise for provider problems: failures come back as
+    ``ConnectorError`` entries in ``CompanyContext.errors`` so one broken
+    integration never hides the others.
+    """
+
+    #: Frozen source_type of the items and errors this connector produces —
+    #: "jira", "slack" or "confluence". Set on subclasses.
+    source_type: Literal["jira", "slack", "confluence"]
+
+    @abstractmethod
+    async def fetch(self, repo_full_name: str, query: str) -> CompanyContext:
+        """Return company items related to a repository for the given query.
+
+        Report failures as ``ConnectorError`` entries in the returned
+        context instead of raising. ``get_company_context()`` also accepts a
+        synchronous implementation (JiraConnector is synchronous today).
+        """
+
+    def check_connection(self) -> bool:
+        """Return True when this connector is configured and ready.
+
+        The default answer is "not configured"; connectors with credentials
+        override this.
+        """
+        return False
 
 
 class AdapterError(Exception):

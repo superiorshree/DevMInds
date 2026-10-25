@@ -1,0 +1,4 @@
+# Integrations dependencies (Kunal).
+# The real connectors talk HTTP to Jira, Slack and Confluence with httpx.
+# Same pin as requirements.txt, so pip resolves a single version.
+httpx==0.27.2

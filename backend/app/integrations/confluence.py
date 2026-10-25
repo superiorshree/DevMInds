@@ -1,24 +1,46 @@
 # File:        backend/app/integrations/confluence.py
 # Owner:       Kunal
-# Purpose:     Read-only adapter for Confluence — fetch pages linked to a repository.
-# Contains:    ConfluenceAdapter class (check_connection, fetch, send) and helper fetch methods.
-# Status:      STUB, replace TODOs with real implementation
-# Depends on:  backend/app/integrations/base.py, backend/app/core/config.py
+# Purpose:     Confluence connector — company-mode pages related to a repository.
+# Contains:    ConfluenceConnector (source_type, check_connection, fetch stub returning NOT_CONNECTED, send and get_pages_for_repo placeholders).
+# Status:      STUB — fetch reports NOT_CONNECTED; later tasks fill in the real calls.
+# Depends on:  backend/app/integrations/base.py, backend/app/schemas/contracts.py, backend/app/config.py
 
-"""Confluence adapter (read-only, company mode only).
+"""Confluence connector (company mode only).
 
-Fetches pages linked to a repository. Never writes to Confluence — `send` raises.
+Until the real Confluence task lands, ``fetch`` reports NOT_CONNECTED instead
+of raising, so ``get_company_context()`` collects it like any other connector
+error. Credentials come from CONFLUENCE_BASE_URL, CONFLUENCE_EMAIL and
+CONFLUENCE_API_TOKEN. Never writes to Confluence — ``send`` raises.
 """
 
 from typing import Any
 
-from app.integrations.base import IntegrationAdapter
+from app.integrations.base import BaseConnector
+from app.schemas.contracts import CompanyContext, ConnectorError
 
 
-class ConfluenceAdapter(IntegrationAdapter):
-    """Read-only adapter for the Confluence REST API."""
+class ConfluenceConnector(BaseConnector):
+    """Confluence connector. Stub: reports NOT_CONNECTED until the real API task."""
 
-    provider = "confluence"
+    source_type = "confluence"
+
+    async def fetch(self, repo_full_name: str, query: str) -> CompanyContext:
+        """Return Confluence pages related to a repository.
+
+        TODO(Kunal): the later Confluence task fills this in (search pages
+        linked to the repo, return CompanyItems with source links). Until
+        then it reports NOT_CONNECTED, never raises.
+        """
+        return CompanyContext(
+            errors=[
+                ConnectorError(
+                    source_type="confluence",
+                    code="NOT_CONNECTED",
+                    message="Confluence is not connected (CONFLUENCE_BASE_URL, "
+                    "CONFLUENCE_EMAIL, CONFLUENCE_API_TOKEN)",
+                )
+            ]
+        )
 
     def check_connection(self) -> bool:
         """Return True when Confluence is reachable and credentials are set.
@@ -27,20 +49,12 @@ class ConfluenceAdapter(IntegrationAdapter):
         """
         return False
 
-    def fetch(self, **kwargs: Any) -> dict[str, Any]:
-        """Fetch Confluence pages linked to a repository.
-
-        TODO(Kunal): search pages by repo link/label, returning clean data with
-        source links. Raise RateLimitError on 429.
-        """
-        raise NotImplementedError("TODO(Kunal): Confluence fetch")
-
     def send(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Confluence is read-only for this project.
 
         TODO(Kunal): we never write to Confluence. Keep this raising.
         """
-        raise NotImplementedError("Confluence adapter is read-only")
+        raise NotImplementedError("Confluence connector is read-only")
 
     # --- Helper methods Kunal will implement ---
 

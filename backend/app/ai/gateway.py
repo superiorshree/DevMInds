@@ -4,13 +4,15 @@
 # Contains:    classify(), choose_provider(), complete() functions
 # Status:      REAL
 # Depends on:  backend/app/core/config.py (get_settings), backend/app/ai/errors.py,
-#              backend/app/ai/ollama_provider.py, backend/app/ai/external_provider.py
+#              backend/app/ai/ollama_provider.py, backend/app/ai/external_provider.py,
+#              backend/app/ai/secret_filter.py
 
 from typing import Any, List
 
 from app.core.config import get_settings
 from app.ai.ollama_provider import OllamaProvider
 from app.ai.external_provider import ExternalLLMProvider
+from app.ai.secret_filter import filter_messages
 
 
 def classify(repository_context: Any, company_context: Any) -> str:
@@ -100,6 +102,10 @@ async def complete(
     """
     classification = classify(repository_context, company_context)
     provider_name = choose_provider(classification)
+
+    # Strip secrets from the messages right before any provider is called:
+    # this one call covers BOTH provider paths below.
+    messages = filter_messages(messages)
 
     if provider_name == "ollama":
         return await OllamaProvider().generate(messages)
