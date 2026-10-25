@@ -2,7 +2,8 @@
 # Owner:       Devyani
 # Purpose:     Build the LLM message list and the source list from retrieved
 #              context (files + company items) and the user's question.
-# Contains:    build_messages(), build_sources()
+# Contains:    _file_title(), _item_title(), _clean_attr(), _clean_body(),
+#              build_messages(), build_sources()
 # Status:      REAL
 # Depends on:  backend/app/schemas/contracts.py (RepoFile, CompanyItem, SourceRef)
 
@@ -32,7 +33,8 @@ Design decisions:
 
 from __future__ import annotations
 
-from typing import Union
+import re
+from typing import Union 
 
 from app.schemas.contracts import CompanyItem, RepoFile, SourceRef
 
@@ -57,19 +59,20 @@ IMPORTANT RULES — follow them exactly:
 
 
 def _file_title(file: RepoFile) -> str:
-    """Return a short, human-readable title for a repository file.
+    """Return the full repository path as the file title.
 
-    Uses the last two path segments so ``packages/router/index.ts`` becomes
-    ``router/index.ts``, which is descriptive without being overly long.
+    Uses the complete path (with forward slashes) so that two files with the
+    same name in different folders remain distinguishable in the prompt and in
+    the ``SourceRef`` list returned to the caller.
 
     Args:
         file: A ``RepoFile`` from ``RepositoryContext.files``.
 
     Returns:
-        Title string (never empty).
+        Full path string with backslashes normalised to forward slashes
+        (never empty).
     """
-    parts = file.path.replace("\\", "/").split("/")
-    return "/".join(parts[-2:]) if len(parts) >= 2 else file.path
+    return file.path.replace("\\", "/")
 
 
 def _item_title(item: CompanyItem) -> str:
@@ -83,6 +86,19 @@ def _item_title(item: CompanyItem) -> str:
     """
     return f"[{item.source_type}] {item.title}"
 
+_CONTEXT_TAG = re.compile(r"<\s*(/?)\s*context", re.IGNORECASE)
+
+
+def _clean_attr(value: str) -> str:
+    """Make a value safe inside a double-quoted attribute."""
+    flat = " ".join(value.split())  # no newlines or tabs
+    return (flat.replace("&", "&amp;").replace('"', "&quot;")
+                .replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _clean_body(text: str) -> str:
+    """Stop text from opening or closing a context block."""
+    return _CONTEXT_TAG.sub(lambda m: f"&lt;{m.group(1)}context", text)
 
 def build_messages(
     question: str,
@@ -116,23 +132,23 @@ def build_messages(
     block_id = 1
 
     for file in files:
-        title = _file_title(file)
         context_lines.append(
-            f'<context id="{block_id}" title="{title}" url="{file.url}">\n'
-            f"{file.content}\n"
+            f'<context id="{block_id}" title="{_clean_attr(_file_title(file))}" '
+            f'url="{_clean_attr(file.url)}">\n'
+            f"{_clean_body(file.content)}\n"
             f"</context>"
         )
         block_id += 1
 
     for item in items:
-        title = _item_title(item)
         context_lines.append(
-            f'<context id="{block_id}" title="{title}" url="{item.url}">\n'
-            f"{item.content}\n"
+            f'<context id="{block_id}" title="{_clean_attr(_item_title(item))}" '
+            f'url="{_clean_attr(item.url)}">\n'
+            f"{_clean_body(item.content)}\n"
             f"</context>"
         )
         block_id += 1
-
+        
     context_section = "\n\n".join(context_lines)
 
     system_content = (

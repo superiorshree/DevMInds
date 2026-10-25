@@ -50,7 +50,7 @@ STOP_WORDS: frozenset[str] = frozenset(
 )
 
 # Maximum characters kept per retrieved block before it is sent to the prompt.
-_MAX_CONTENT_CHARS: int = 8_000
+_MAX_CONTENT_CHARS: int = 2_000
 
 # Path hits are weighted more than content hits so that a file clearly named
 # "router.py" beats an unrelated file that happens to mention "router" once.
@@ -139,7 +139,10 @@ def _trim_content(text: str, max_chars: int = _MAX_CONTENT_CHARS) -> str:
         max_chars: Hard ceiling in characters.
 
     Returns:
-        Possibly truncated string, always <= *max_chars* chars.
+        At most *max_chars* characters of the original text, plus a short
+        trim marker (``"\\n... [content trimmed]"``) when the text was cut.
+        The total length therefore slightly exceeds *max_chars* when trimming
+        occurs.
     """
     if len(text) <= max_chars:
         return text

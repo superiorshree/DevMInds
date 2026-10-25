@@ -19,6 +19,7 @@ import pytest
 from app.schemas.contracts import CompanyItem, RepoFile, RepositoryContext
 from app.services.context_retrieval import (
     STOP_WORDS,
+    _MAX_CONTENT_CHARS,
     _keywords,
     _score_file,
     _score_item,
@@ -159,12 +160,14 @@ class TestTrimContent:
         assert "[content trimmed]" in result
 
     def test_exact_boundary_is_not_trimmed(self) -> None:
-        text = "x" * 8_000
+        # Build text exactly at the current cap so the test stays correct
+        # even if _MAX_CONTENT_CHARS is tuned in future.
+        text = "x" * _MAX_CONTENT_CHARS
         result = _trim_content(text)
         assert result == text
 
     def test_one_over_boundary_is_trimmed(self) -> None:
-        text = "x" * 8_001
+        text = "x" * (_MAX_CONTENT_CHARS + 1)
         result = _trim_content(text)
         assert "[content trimmed]" in result
 
@@ -272,23 +275,23 @@ class TestRetrieveModeIsolation:
 
 class TestRetrieveTrimming:
     def test_long_file_content_is_trimmed(self) -> None:
-        long_content = "router " * 5_000   # ~35 000 chars
+        long_content = "router " * 5_000   # much longer than _MAX_CONTENT_CHARS
         files = [make_file("router.py", long_content)]
         ctx = make_context(files)
         top_files, _ = retrieve("router", ctx, [], "open_source")
-        # Ellipsis marker '\n... [content trimmed]' = 22 chars; total <= 8022.
-        assert len(top_files[0].content) <= 8_022
+        # Trim marker '\n... [content trimmed]' is 22 chars; total <= cap + 22.
+        assert len(top_files[0].content) <= _MAX_CONTENT_CHARS + 22
 
     def test_long_item_content_is_trimmed(self) -> None:
         long_content = "router " * 5_000
         items = [make_item(title="Router", content=long_content)]
         ctx = make_context([])
         _, top_items = retrieve("router", ctx, items, "company")
-        # Ellipsis marker '\n... [content trimmed]' = 22 chars; total <= 8022.
-        assert len(top_items[0].content) <= 8_022
+        # Trim marker '\n... [content trimmed]' is 22 chars; total <= cap + 22.
+        assert len(top_items[0].content) <= _MAX_CONTENT_CHARS + 22
 
     def test_trimmed_content_ends_with_marker(self) -> None:
-        long_content = "r" * 9_000
+        long_content = "r" * (9 * _MAX_CONTENT_CHARS)  # well over the cap
         files = [make_file("router.py", long_content)]
         ctx = make_context(files)
         top_files, _ = retrieve("router", ctx, [], "open_source")
