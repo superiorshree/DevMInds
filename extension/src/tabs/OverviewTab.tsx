@@ -30,7 +30,14 @@ export function OverviewTab({ overview }: OverviewTabProps) {
         }}
       >
         {overview.primary_language && <span>Language: {overview.primary_language}</span>}
-        {typeof overview.stars === "number" && <span>★ {overview.stars.toLocaleString()}</span>}
+        {typeof overview.stars === "number" && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+            </svg>
+            {overview.stars.toLocaleString()}
+          </span>
+        )}
         {overview.last_updated && <span>Updated: {overview.last_updated.slice(0, 10)}</span>}
       </div>
 
